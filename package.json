@@ -1,0 +1,13 @@
+{
+  "name": "futbolx-discord-bot",
+  "version": "1.0.0",
+  "description": "Futbol-X Discord schedule bot",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.25.1",
+    "luxon": "^3.7.2"
+  }
+}
