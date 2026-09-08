@@ -15,7 +15,7 @@ const CATEGORIES = [
   "motorsports",
   "nfl",
   "nhl",
-  "mlb",
+  "baseball",
   "rugby",
   "golf",
   "others",
