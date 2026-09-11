@@ -203,19 +203,28 @@ function formatCountdown(start) {
     start.toMillis() -
     now.toMillis();
 
+  // Event has started
   if (diffMs <= 0) {
     return "LIVE";
   }
 
-  const hours = Math.floor(
-    diffMs /
-      (60 * 60 * 1000)
+  // Round UP so an event 40 seconds away
+  // still shows 1 minute instead of 0 minutes.
+  const totalMinutes = Math.ceil(
+    diffMs / (60 * 1000)
   );
 
-  // 24 hours or more
-  if (hours >= 24) {
+  const totalHours = Math.floor(
+    totalMinutes / 60
+  );
+
+  // ----------------------------------------------
+  // 24 HOURS OR MORE
+  // ----------------------------------------------
+
+  if (totalHours >= 24) {
     const days = Math.ceil(
-      hours / 24
+      totalHours / 24
     );
 
     return `in ${days} ${
@@ -225,14 +234,26 @@ function formatCountdown(start) {
     }`;
   }
 
-  // Under 24 hours
-  const displayHours =
-    Math.max(1, hours);
+  // ----------------------------------------------
+  // 1 HOUR OR MORE
+  // ----------------------------------------------
 
-  return `in ${displayHours} ${
-    displayHours === 1
-      ? "hour"
-      : "hours"
+  if (totalHours >= 1) {
+    return `in ${totalHours} ${
+      totalHours === 1
+        ? "hour"
+        : "hours"
+    }`;
+  }
+
+  // ----------------------------------------------
+  // UNDER 1 HOUR
+  // ----------------------------------------------
+
+  return `in ${totalMinutes} ${
+    totalMinutes === 1
+      ? "minute"
+      : "minutes"
   }`;
 }
 
@@ -307,14 +328,10 @@ function buildScheduleMessage(events) {
 
     for (const event of categoryEvents) {
       const time =
-        event.start.toFormat(
-          "h:mm a"
-        );
+        event.start.toFormat("h:mm a");
 
       const countdown =
-        formatCountdown(
-          event.start
-        );
+        formatCountdown(event.start);
 
       message +=
         `• **${event.name}** — ${time} (${countdown})\n`;
@@ -324,8 +341,7 @@ function buildScheduleMessage(events) {
   }
 
   if (categoryCount === 0) {
-    message +=
-      "*No upcoming events.*";
+    message += "*No upcoming events.*";
   }
 
   return message.trim();
@@ -342,12 +358,10 @@ function buildLiveMessage(liveEvents) {
 
   for (const event of liveEvents) {
 
-    // Use the actual category emoji
+    // Use the event's actual category
     // instead of always using football.
     const emoji =
-      categoryEmoji(
-        event.category
-      );
+      categoryEmoji(event.category);
 
     message +=
       `${emoji} **${event.name}**\n`;
@@ -503,8 +517,8 @@ async function deleteActivityMessage(
     activityMessage = null;
   }
 
-  // Also clean up one that may
-  // exist from before restart.
+  // Also clean up one that may exist
+  // from before a restart.
   const existing =
     await findActivityMessage(
       channel
@@ -531,7 +545,7 @@ async function sendLiveMessage(
   );
 
   // If nothing is live, leave
-  // absolutely no LIVE message.
+  // no LIVE NOW message.
   if (
     liveEvents.length === 0
   ) {
@@ -761,35 +775,32 @@ async function updateSchedule() {
     );
 
     // ----------------------------------------------
-    // HANDLE LIVE EVENTS
+    // EVENT JUST WENT LIVE
     // ----------------------------------------------
 
     if (
       newlyLive.length > 0
     ) {
-      // Something just went LIVE.
-      //
-      // Delete the old activity message
-      // and create a fresh LIVE NOW message.
       await sendLiveMessage(
         channel,
         liveEvents
       );
     }
 
+    // ----------------------------------------------
+    // EVENT JUST ENDED
+    // ----------------------------------------------
+
     else if (
       endedLive.length > 0
     ) {
-      // One or more live events ended.
+      // Immediately rebuild the LIVE message.
       //
-      // IMPORTANT:
-      // Rebuild the LIVE message immediately.
+      // If other events are still live,
+      // only those remaining events are shown.
       //
-      // If another event is still live,
-      // show only the remaining live events.
-      //
-      // If nothing is live anymore,
-      // delete the LIVE message completely.
+      // If nothing remains live,
+      // the LIVE message is deleted.
       await sendLiveMessage(
         channel,
         liveEvents
@@ -801,16 +812,14 @@ async function updateSchedule() {
     }
 
     // ----------------------------------------------
-    // HANDLE NEW EVENTS
+    // NEW UPCOMING EVENT
     // ----------------------------------------------
 
     else if (
       newEvents.length > 0
     ) {
-      // New upcoming event was added.
-      //
       // If something is already live,
-      // LIVE NOW must remain the newest message.
+      // LIVE NOW remains the newest message.
       if (
         liveEvents.length > 0
       ) {
@@ -854,16 +863,9 @@ async function updateSchedule() {
         }
 
       } else {
-        // ------------------------------------------
-        // NOTHING IS LIVE
-        // ------------------------------------------
+        // Nothing is live.
         //
-        // IMPORTANT:
-        // If somehow a stale LIVE/UPDATE message
-        // exists, remove it.
-        //
-        // This also protects against stale messages
-        // left behind after a bot restart.
+        // Remove any stale activity message.
         const existing =
           await findActivityMessage(
             channel
@@ -874,8 +876,7 @@ async function updateSchedule() {
             await existing.delete();
           } catch {}
 
-          activityMessage =
-            null;
+          activityMessage = null;
         }
       }
     }
