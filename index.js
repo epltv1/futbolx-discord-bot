@@ -7,6 +7,9 @@ const CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;
 const POLL_INTERVAL = 60 * 1000;
 const EVENT_WINDOW = 48 * 60 * 60 * 1000;
 
+// Keep safely below Discord's 2000 character limit.
+const MAX_MESSAGE_LENGTH = 1900;
+
 const CATEGORIES = [
   "football",
   "tennis",
@@ -41,7 +44,9 @@ const client = new Client({
 
 let previousEvents = null;
 
-let scheduleMessage = null;
+// Main schedule can now contain multiple messages.
+let scheduleMessages = [];
+
 let activityMessage = null;
 
 // --------------------------------------------------
@@ -68,6 +73,7 @@ async function fetchCategory(category) {
       console.error(
         `Failed to fetch ${category}: ${response.status}`
       );
+
       return [];
     }
 
@@ -83,7 +89,9 @@ async function fetchCategory(category) {
     const events = [];
 
     for (const group of data.streams) {
-      if (!Array.isArray(group.streams)) continue;
+      if (!Array.isArray(group.streams)) {
+        continue;
+      }
 
       for (const event of group.streams) {
         if (
@@ -154,10 +162,18 @@ function processEvents(events) {
   const filtered = [];
 
   for (const event of events) {
-    const start = parseEAT(event.starts_at);
-    const end = parseEAT(event.ends_at);
+    const start = parseEAT(
+      event.starts_at
+    );
 
-    if (!start.isValid || !end.isValid) {
+    const end = parseEAT(
+      event.ends_at
+    );
+
+    if (
+      !start.isValid ||
+      !end.isValid
+    ) {
       continue;
     }
 
@@ -171,7 +187,10 @@ function processEvents(events) {
         milliseconds: EVENT_WINDOW
       });
 
-    if (isLive || startsWithin48Hours) {
+    if (
+      isLive ||
+      startsWithin48Hours
+    ) {
       filtered.push({
         ...event,
         start,
@@ -203,13 +222,16 @@ function formatCountdown(start) {
     start.toMillis() -
     now.toMillis();
 
-  // Event has started
+  // Event has started.
   if (diffMs <= 0) {
     return "LIVE";
   }
 
-  // Round UP so an event 40 seconds away
-  // still shows 1 minute instead of 0 minutes.
+  // Always round UP.
+  //
+  // 40 seconds  -> 1 minute
+  // 40 minutes  -> 40 minutes
+  // 59 minutes  -> 59 minutes
   const totalMinutes = Math.ceil(
     diffMs / (60 * 1000)
   );
@@ -282,27 +304,44 @@ function categoryEmoji(category) {
 }
 
 // --------------------------------------------------
-// BUILD MAIN SCHEDULE
+// BUILD SCHEDULE LINES
 // --------------------------------------------------
 
-function buildScheduleMessage(events) {
-  let message = "";
+function buildScheduleLines(events) {
+  const lines = [];
 
-  message += "━━━━━━━━━━━━━━━━━━━━\n";
-  message += "        **FUTBOL-X**\n";
-  message += "     **LIVE & UPCOMING**\n";
-  message += "━━━━━━━━━━━━━━━━━━━━\n\n";
+  lines.push(
+    "━━━━━━━━━━━━━━━━━━━━"
+  );
+
+  lines.push(
+    "        **FUTBOL-X**"
+  );
+
+  lines.push(
+    "     **LIVE & UPCOMING**"
+  );
+
+  lines.push(
+    "━━━━━━━━━━━━━━━━━━━━"
+  );
+
+  lines.push("");
 
   const grouped = {};
 
   for (const event of events) {
-    if (event.isLive) continue;
+    if (event.isLive) {
+      continue;
+    }
 
     if (!grouped[event.category]) {
       grouped[event.category] = [];
     }
 
-    grouped[event.category].push(event);
+    grouped[event.category].push(
+      event
+    );
   }
 
   let categoryCount = 0;
@@ -318,33 +357,89 @@ function buildScheduleMessage(events) {
       continue;
     }
 
-    // Small separator between categories
+    // Separator between categories.
     if (categoryCount > 0) {
-      message += "\n";
+      lines.push("");
     }
 
-    message +=
-      `${categoryEmoji(category)} **${category.toUpperCase()}**\n`;
+    lines.push(
+      `${categoryEmoji(category)} **${category.toUpperCase()}**`
+    );
 
-    for (const event of categoryEvents) {
+    for (
+      const event of categoryEvents
+    ) {
       const time =
-        event.start.toFormat("h:mm a");
+        event.start.toFormat(
+          "h:mm a"
+        );
 
       const countdown =
-        formatCountdown(event.start);
+        formatCountdown(
+          event.start
+        );
 
-      message +=
-        `• **${event.name}** — ${time} (${countdown})\n`;
+      lines.push(
+        `• **${event.name}** — ${time} (${countdown})`
+      );
     }
 
     categoryCount++;
   }
 
   if (categoryCount === 0) {
-    message += "*No upcoming events.*";
+    lines.push(
+      "*No upcoming events.*"
+    );
   }
 
-  return message.trim();
+  return lines;
+}
+
+// --------------------------------------------------
+// SPLIT SCHEDULE INTO DISCORD-SAFE MESSAGES
+// --------------------------------------------------
+
+function splitScheduleMessages(events) {
+  const lines =
+    buildScheduleLines(events);
+
+  const chunks = [];
+
+  let current = "";
+
+  for (const line of lines) {
+    const addition =
+      current.length > 0
+        ? `\n${line}`
+        : line;
+
+    // If adding this line would exceed
+    // our safe limit, start a new message.
+    if (
+      current.length +
+        addition.length >
+      MAX_MESSAGE_LENGTH
+    ) {
+      if (current.length > 0) {
+        chunks.push(
+          current.trim()
+        );
+      }
+
+      current = line;
+    } else {
+      current += addition;
+    }
+  }
+
+  if (current.length > 0) {
+    chunks.push(
+      current.trim()
+    );
+  }
+
+  return chunks;
 }
 
 // --------------------------------------------------
@@ -357,11 +452,10 @@ function buildLiveMessage(liveEvents) {
   message += "🔴 **LIVE NOW**\n\n";
 
   for (const event of liveEvents) {
-
-    // Use the event's actual category
-    // instead of always using football.
     const emoji =
-      categoryEmoji(event.category);
+      categoryEmoji(
+        event.category
+      );
 
     message +=
       `${emoji} **${event.name}**\n`;
@@ -374,16 +468,16 @@ function buildLiveMessage(liveEvents) {
     "━━━━━━━━━━━━━━━━━━━━\n\n";
 
   message +=
-    `🔗 **Events Links Here;**\n`;
+    "🔗 **Events Links Here;**\n";
 
   message +=
     `${EVENTS_LINK}\n\n`;
 
   message +=
-    `📝 **Event Request Here;**\n`;
+    "📝 **Event Request Here;**\n";
 
   message +=
-    `${REQUEST_LINK}`;
+    REQUEST_LINK;
 
   return message.trim();
 }
@@ -413,28 +507,34 @@ function buildUpdateMessage(
 }
 
 // --------------------------------------------------
-// FIND MAIN SCHEDULE MESSAGE
+// FIND ALL SCHEDULE MESSAGES
 // --------------------------------------------------
 
-async function findScheduleMessage(
+async function findScheduleMessages(
   channel
 ) {
   const messages =
     await channel.messages.fetch({
-      limit: 50
+      limit: 100
     });
 
-  return messages.find(
-    message =>
-      message.author.id ===
-        client.user.id &&
-      message.content.includes(
-        "FUTBOL-X"
-      ) &&
-      message.content.includes(
-        "LIVE & UPCOMING"
-      )
-  );
+  return messages
+    .filter(
+      message =>
+        message.author.id ===
+          client.user.id &&
+        message.content.includes(
+          "FUTBOL-X"
+        ) &&
+        message.content.includes(
+          "LIVE & UPCOMING"
+        )
+    )
+    .sort(
+      (a, b) =>
+        a.createdTimestamp -
+        b.createdTimestamp
+    );
 }
 
 // --------------------------------------------------
@@ -446,7 +546,7 @@ async function findActivityMessage(
 ) {
   const messages =
     await channel.messages.fetch({
-      limit: 50
+      limit: 100
     });
 
   return messages.find(
@@ -465,41 +565,146 @@ async function findActivityMessage(
 }
 
 // --------------------------------------------------
-// GET MAIN SCHEDULE
+// DELETE EXTRA SCHEDULE MESSAGES
 // --------------------------------------------------
 
-async function getScheduleMessage(
-  channel
+async function deleteExtraScheduleMessages(
+  messages,
+  keepCount
 ) {
-  if (scheduleMessage) {
+  if (
+    messages.length <= keepCount
+  ) {
+    return;
+  }
+
+  for (
+    let i = keepCount;
+    i < messages.length;
+    i++
+  ) {
     try {
-      await scheduleMessage.fetch();
+      await messages[i].delete();
+    } catch {}
+  }
+}
 
-      return scheduleMessage;
+// --------------------------------------------------
+// GET / CREATE SCHEDULE MESSAGES
+// --------------------------------------------------
 
-    } catch {
-      scheduleMessage = null;
+async function getScheduleMessages(
+  channel,
+  requiredCount
+) {
+  // ----------------------------------------------
+  // Try cached messages first.
+  // ----------------------------------------------
+
+  const validCached = [];
+
+  for (
+    const message of scheduleMessages
+  ) {
+    try {
+      await message.fetch();
+
+      validCached.push(
+        message
+      );
+    } catch {}
+  }
+
+  scheduleMessages =
+    validCached;
+
+  // ----------------------------------------------
+  // Find existing messages after restart.
+  // ----------------------------------------------
+
+  if (
+    scheduleMessages.length === 0
+  ) {
+    scheduleMessages =
+      await findScheduleMessages(
+        channel
+      );
+  }
+
+  // ----------------------------------------------
+  // Create missing schedule messages.
+  // ----------------------------------------------
+
+  while (
+    scheduleMessages.length <
+    requiredCount
+  ) {
+    const newMessage =
+      await channel.send(
+        "Loading Futbol-X schedule..."
+      );
+
+    scheduleMessages.push(
+      newMessage
+    );
+  }
+
+  return scheduleMessages;
+}
+
+// --------------------------------------------------
+// UPDATE ALL SCHEDULE MESSAGES
+// --------------------------------------------------
+
+async function updateScheduleMessages(
+  channel,
+  events
+) {
+  const chunks =
+    splitScheduleMessages(
+      events
+    );
+
+  const messages =
+    await getScheduleMessages(
+      channel,
+      chunks.length
+    );
+
+  // Edit every required message.
+  for (
+    let i = 0;
+    i < chunks.length;
+    i++
+  ) {
+    try {
+      await messages[i].edit(
+        chunks[i]
+      );
+    } catch (error) {
+      console.error(
+        `Failed to edit schedule message ${i + 1}:`,
+        error.message
+      );
     }
   }
 
-  const existing =
-    await findScheduleMessage(
-      channel
+  // Remove old schedule messages
+  // if the schedule became shorter.
+  await deleteExtraScheduleMessages(
+    messages,
+    chunks.length
+  );
+
+  scheduleMessages =
+    messages.slice(
+      0,
+      chunks.length
     );
 
-  if (existing) {
-    scheduleMessage =
-      existing;
-
-    return existing;
-  }
-
-  scheduleMessage =
-    await channel.send(
-      "Loading Futbol-X schedule..."
-    );
-
-  return scheduleMessage;
+  console.log(
+    `Schedule split into ${chunks.length} message(s)`
+  );
 }
 
 // --------------------------------------------------
@@ -517,8 +722,8 @@ async function deleteActivityMessage(
     activityMessage = null;
   }
 
-  // Also clean up one that may exist
-  // from before a restart.
+  // Also clean up an activity message
+  // left behind before a restart.
   const existing =
     await findActivityMessage(
       channel
@@ -539,13 +744,12 @@ async function sendLiveMessage(
   channel,
   liveEvents
 ) {
-  // Remove the old activity message.
+  // Delete old LIVE/UPDATE message.
   await deleteActivityMessage(
     channel
   );
 
-  // If nothing is live, leave
-  // no LIVE NOW message.
+  // Nothing live.
   if (
     liveEvents.length === 0
   ) {
@@ -600,8 +804,6 @@ function detectChanges(
   currentEvents
 ) {
   // First API check.
-  // Don't spam a notification just
-  // because the bot started.
   if (
     previousEvents === null
   ) {
@@ -636,9 +838,9 @@ function detectChanges(
   const newlyLive = [];
   const endedLive = [];
 
-  // ------------------------------------------------
+  // ----------------------------------------------
   // NEW EVENTS
-  // ------------------------------------------------
+  // ----------------------------------------------
 
   for (
     const event of currentEvents
@@ -653,9 +855,9 @@ function detectChanges(
     }
   }
 
-  // ------------------------------------------------
+  // ----------------------------------------------
   // JUST WENT LIVE
-  // ------------------------------------------------
+  // ----------------------------------------------
 
   for (
     const event of currentEvents
@@ -675,9 +877,9 @@ function detectChanges(
     }
   }
 
-  // ------------------------------------------------
+  // ----------------------------------------------
   // LIVE EVENTS THAT ENDED
-  // ------------------------------------------------
+  // ----------------------------------------------
 
   for (
     const previous of previousEvents
@@ -757,21 +959,12 @@ async function updateSchedule() {
     );
 
     // ----------------------------------------------
-    // EDIT MAIN SCHEDULE
+    // UPDATE MAIN SCHEDULE
     // ----------------------------------------------
 
-    const content =
-      buildScheduleMessage(
-        events
-      );
-
-    const message =
-      await getScheduleMessage(
-        channel
-      );
-
-    await message.edit(
-      content
+    await updateScheduleMessages(
+      channel,
+      events
     );
 
     // ----------------------------------------------
@@ -794,13 +987,11 @@ async function updateSchedule() {
     else if (
       endedLive.length > 0
     ) {
-      // Immediately rebuild the LIVE message.
+      // Rebuild immediately.
       //
-      // If other events are still live,
-      // only those remaining events are shown.
-      //
-      // If nothing remains live,
-      // the LIVE message is deleted.
+      // Remaining live events stay.
+      // Finished events disappear.
+      // If none remain, LIVE NOW is deleted.
       await sendLiveMessage(
         channel,
         liveEvents
@@ -812,14 +1003,14 @@ async function updateSchedule() {
     }
 
     // ----------------------------------------------
-    // NEW UPCOMING EVENT
+    // NEW UPCOMING EVENTS
     // ----------------------------------------------
 
     else if (
       newEvents.length > 0
     ) {
-      // If something is already live,
-      // LIVE NOW remains the newest message.
+      // If something is live,
+      // LIVE NOW must remain newest.
       if (
         liveEvents.length > 0
       ) {
@@ -840,7 +1031,6 @@ async function updateSchedule() {
     // ----------------------------------------------
 
     else {
-
       if (
         liveEvents.length > 0
       ) {
@@ -876,7 +1066,8 @@ async function updateSchedule() {
             await existing.delete();
           } catch {}
 
-          activityMessage = null;
+          activityMessage =
+            null;
         }
       }
     }
@@ -909,7 +1100,7 @@ async function updateSchedule() {
 // --------------------------------------------------
 
 client.once(
-  "ready",
+  "clientReady",
   async () => {
     console.log(
       `Logged in as ${client.user.tag}`
