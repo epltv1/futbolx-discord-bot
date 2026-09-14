@@ -33,7 +33,7 @@ const REQUEST_LINK =
   "https://discord.com/channels/1372972743464714370/1455147734544941162";
 
 const API_BASE =
-  "https://futbol-x.xyz/api";
+  "https://futbol-x.top/api";
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds]
