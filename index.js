@@ -77,7 +77,7 @@ function categoryEmoji(category) {
 async function fetchCategory(category) {
   try {
     const response = await fetch(
-      `${API_BASE}/${category}.json`,
+      `\( {API_BASE}/ \){category}.json`,
       {
         headers: {
           "User-Agent": "FutbolX-Discord-Bot"
@@ -86,13 +86,23 @@ async function fetchCategory(category) {
     );
 
     if (!response.ok) {
-      throw new Error(
-        `HTTP ${response.status}`
-      );
+      throw new Error(`HTTP ${response.status}`);
     }
 
     const data = await response.json();
 
+    // New API structure: data.streams[0].streams
+    if (Array.isArray(data?.streams)) {
+      const events = [];
+      for (const group of data.streams) {
+        if (Array.isArray(group.streams)) {
+          events.push(...group.streams);
+        }
+      }
+      return events;
+    }
+
+    // Fallback for old structure
     if (Array.isArray(data)) {
       return data;
     }
@@ -103,10 +113,7 @@ async function fetchCategory(category) {
 
     return [];
   } catch (error) {
-    console.error(
-      `[API] ${category}: ${error.message}`
-    );
-
+    console.error(`[API] ${category}: ${error.message}`);
     return [];
   }
 }
@@ -191,7 +198,7 @@ function formatCountdown(start) {
   }
 
   if (minutes < 60) {
-    return `in ${minutes} minute${
+    return `in \( {minutes} minute \){
       minutes === 1 ? "" : "s"
     }`;
   }
@@ -201,7 +208,7 @@ function formatCountdown(start) {
   );
 
   if (hours < 24) {
-    return `in ${hours} hour${
+    return `in \( {hours} hour \){
       hours === 1 ? "" : "s"
     }`;
   }
@@ -210,7 +217,7 @@ function formatCountdown(start) {
     hours / 24
   );
 
-  return `in ${days} day${
+  return `in \( {days} day \){
     days === 1 ? "" : "s"
   }`;
 }
@@ -258,7 +265,7 @@ function buildCategoryData(events) {
         const countdown =
           formatCountdown(event.start);
 
-        return `• **${event.name}** — **${time}** (${countdown})`;
+        return `• **\( {event.name}** — ** \){time}** (${countdown})`;
       }
     );
 
@@ -311,7 +318,7 @@ function getOldTextCategory(message) {
 
   for (const category of CATEGORIES) {
     const normal =
-      `${categoryEmoji(category)} **${category.toUpperCase()}**`;
+      `\( {categoryEmoji(category)} ** \){category.toUpperCase()}**`;
 
     if (firstLine === normal) {
       return category;
@@ -587,14 +594,14 @@ function detectLiveChanges(
 
   const oldMap = new Map(
     oldEvents.map(event => [
-      `${event.category}|${event.name}|${event.starts_at}`,
+      `\( {event.category}| \){event.name}|${event.starts_at}`,
       event
     ])
   );
 
   const newMap = new Map(
     newEvents.map(event => [
-      `${event.category}|${event.name}|${event.starts_at}`,
+      `\( {event.category}| \){event.name}|${event.starts_at}`,
       event
     ])
   );
@@ -604,7 +611,7 @@ function detectLiveChanges(
 
   for (const event of newEvents) {
     const key =
-      `${event.category}|${event.name}|${event.starts_at}`;
+      `\( {event.category}| \){event.name}|${event.starts_at}`;
 
     const oldEvent =
       oldMap.get(key);
@@ -620,7 +627,7 @@ function detectLiveChanges(
 
   for (const oldEvent of oldEvents) {
     const key =
-      `${oldEvent.category}|${oldEvent.name}|${oldEvent.starts_at}`;
+      `\( {oldEvent.category}| \){oldEvent.name}|${oldEvent.starts_at}`;
 
     const current =
       newMap.get(key);
