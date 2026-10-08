@@ -14,7 +14,7 @@ const client = new Client({
 });
 
 const TOKEN = process.env.DISCORD_TOKEN;
-const CHANNEL_ID = process.env.CHANNEL_ID;
+const CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;
 
 const API_BASE = "https://www.futbol-x.xyz/api";
 const TIMEZONE = "Africa/Nairobi";
@@ -76,7 +76,9 @@ function categoryEmoji(category) {
 
 async function fetchCategory(category) {
   try {
-    const response = await fetch(`${API_BASE}/${category}.json`);
+    const response = await fetch(
+      `${API_BASE}/${category}.json`
+    );
 
     if (!response.ok) {
       throw new Error(
@@ -899,7 +901,7 @@ if (!TOKEN) {
 
 if (!CHANNEL_ID) {
   console.error(
-    "Missing CHANNEL_ID environment variable."
+    "Missing DISCORD_CHANNEL_ID environment variable."
   );
 
   process.exit(1);
