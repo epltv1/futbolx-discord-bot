@@ -202,7 +202,7 @@ function buildCategoryData(events) {
       .setFooter({
         text: "Updated at"
       })
-      .setTimestamp(updatedUnix * 1000); // Discord converts this to each user's local time
+      .setTimestamp(updatedUnix * 1000);
 
     result.push({
       category,
@@ -373,7 +373,13 @@ function buildLiveMessage(liveEvents) {
   return [
     "🔴 **LIVE NOW**",
     "",
-    lines.join("\n")
+    lines.join("\n"),
+    "",
+    "Stream links;",
+    "https://discord.com/channels/1372972743464714370/1455146521975586878",
+    "",
+    "Request event here;",
+    "https://discord.com/channels/1372972743464714370/1455147734544941162"
   ].join("\n");
 }
 
