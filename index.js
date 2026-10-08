@@ -70,7 +70,9 @@ function categoryEmoji(category) {
 
 async function fetchCategory(category) {
   try {
-    const response = await fetch(`${API_BASE}/${category}.json`);
+    const response = await fetch(
+      `${API_BASE}/${category}.json`
+    );
 
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
@@ -78,14 +80,22 @@ async function fetchCategory(category) {
 
     const data = await response.json();
 
-    if (!data.success || !Array.isArray(data.streams)) {
+    if (
+      !data.success ||
+      !Array.isArray(data.streams)
+    ) {
       return [];
     }
 
     const events = [];
 
     for (const group of data.streams) {
-      if (!group || !Array.isArray(group.streams)) continue;
+      if (
+        !group ||
+        !Array.isArray(group.streams)
+      ) {
+        continue;
+      }
 
       for (const stream of group.streams) {
         if (
@@ -108,14 +118,20 @@ async function fetchCategory(category) {
 
     return events;
   } catch (error) {
-    console.error(`Failed to fetch ${category}:`, error.message);
+    console.error(
+      `Failed to fetch ${category}:`,
+      error.message
+    );
+
     return [];
   }
 }
 
 async function fetchAllEvents() {
   const results = await Promise.all(
-    CATEGORIES.map(category => fetchCategory(category))
+    CATEGORIES.map(category =>
+      fetchCategory(category)
+    )
   );
 
   return results.flat();
@@ -131,7 +147,9 @@ function eventKey(event) {
 }
 
 function processEvents(rawEvents) {
-  const now = DateTime.now().setZone("Africa/Nairobi");
+  const now =
+    DateTime.now().setZone("Africa/Nairobi");
+
   const windowEnd = now.plus({
     milliseconds: EVENT_WINDOW
   });
@@ -139,8 +157,11 @@ function processEvents(rawEvents) {
   const events = [];
 
   for (const event of rawEvents) {
-    const start = parseEAT(event.starts_at);
-    const end = parseEAT(event.ends_at);
+    const start =
+      parseEAT(event.starts_at);
+
+    const end =
+      parseEAT(event.ends_at);
 
     if (!start.isValid || !end.isValid) {
       continue;
@@ -167,7 +188,9 @@ function processEvents(rawEvents) {
   }
 
   events.sort(
-    (a, b) => a.start.toMillis() - b.start.toMillis()
+    (a, b) =>
+      a.start.toMillis() -
+      b.start.toMillis()
   );
 
   return events;
@@ -178,42 +201,44 @@ function getUpcomingEvents(events) {
     .filter(event => !event.isLive)
     .sort(
       (a, b) =>
-        a.start.toMillis() - b.start.toMillis()
+        a.start.toMillis() -
+        b.start.toMillis()
     );
 }
 
 function formatCountdown(start) {
-  const now = DateTime.now().setZone("Africa/Nairobi");
+  const now =
+    DateTime.now().setZone("Africa/Nairobi");
 
   const diffMs =
-    start.toMillis() - now.toMillis();
+    start.toMillis() -
+    now.toMillis();
 
   if (diffMs <= 0) {
     return "LIVE";
   }
 
-  const totalMinutes = Math.floor(
-    diffMs / (60 * 1000)
-  );
+  const totalMinutes =
+    Math.floor(
+      diffMs / (60 * 1000)
+    );
 
-  const minutesSafe = Math.max(
-    1,
-    totalMinutes
-  );
+  const minutesSafe =
+    Math.max(1, totalMinutes);
 
   if (minutesSafe >= 24 * 60) {
-    const days = Math.ceil(
-      minutesSafe / (24 * 60)
-    );
+    const days =
+      Math.ceil(
+        minutesSafe / (24 * 60)
+      );
 
     return `in ${days} ${
       days === 1 ? "day" : "days"
     }`;
   }
 
-  const hours = Math.floor(
-    minutesSafe / 60
-  );
+  const hours =
+    Math.floor(minutesSafe / 60);
 
   if (hours >= 1) {
     return `in ${hours} ${
@@ -222,13 +247,20 @@ function formatCountdown(start) {
   }
 
   return `in ${minutesSafe} ${
-    minutesSafe === 1 ? "minute" : "minutes"
+    minutesSafe === 1
+      ? "minute"
+      : "minutes"
   }`;
 }
 
 function buildCategoryMessages(events) {
-  const now = DateTime.now().setZone("Africa/Nairobi");
-  const checkedAt = now.toFormat("HH:mm");
+  const now =
+    DateTime.now().setZone(
+      "Africa/Nairobi"
+    );
+
+  const checkedAt =
+    now.toFormat("HH:mm");
 
   const grouped = {};
 
@@ -247,7 +279,8 @@ function buildCategoryMessages(events) {
   const messages = [];
 
   for (const category of CATEGORIES) {
-    const categoryEvents = grouped[category];
+    const categoryEvents =
+      grouped[category];
 
     if (!categoryEvents.length) {
       continue;
@@ -255,11 +288,15 @@ function buildCategoryMessages(events) {
 
     categoryEvents.sort(
       (a, b) =>
-        a.start.toMillis() - b.start.toMillis()
+        a.start.toMillis() -
+        b.start.toMillis()
     );
 
-    const emoji = categoryEmoji(category);
-    const title = category.toUpperCase();
+    const emoji =
+      categoryEmoji(category);
+
+    const title =
+      category.toUpperCase();
 
     let messageNumber = 1;
 
@@ -269,8 +306,11 @@ function buildCategoryMessages(events) {
     ];
 
     for (const event of categoryEvents) {
-      const time = event.start.toFormat("h:mm a");
-      const countdown = formatCountdown(event.start);
+      const time =
+        event.start.toFormat("h:mm a");
+
+      const countdown =
+        formatCountdown(event.start);
 
       const eventLine =
         `• **${event.name}** — **${time}** (${countdown})`;
@@ -283,7 +323,8 @@ function buildCategoryMessages(events) {
       ].join("\n");
 
       if (
-        candidate.length <= SCHEDULE_MAX_LENGTH
+        candidate.length <=
+        SCHEDULE_MAX_LENGTH
       ) {
         currentLines.push(eventLine);
         continue;
@@ -297,7 +338,8 @@ function buildCategoryMessages(events) {
       messages.push({
         category,
         messageNumber,
-        content: currentLines.join("\n")
+        content:
+          currentLines.join("\n")
       });
 
       messageNumber++;
@@ -317,7 +359,8 @@ function buildCategoryMessages(events) {
     messages.push({
       category,
       messageNumber,
-      content: currentLines.join("\n")
+      content:
+        currentLines.join("\n")
     });
   }
 
@@ -327,14 +370,19 @@ function buildCategoryMessages(events) {
 function isScheduleMessage(message) {
   if (
     !message ||
-    message.author.id !== client.user.id
+    !client.user ||
+    message.author?.id !==
+      client.user.id
   ) {
     return false;
   }
 
+  const content =
+    String(message.content ?? "");
+
   if (
-    message.content.includes("LIVE & UPCOMING") ||
-    message.content.includes(
+    content.includes("LIVE & UPCOMING") ||
+    content.includes(
       "FUTBOL-X • SCHEDULE CONTINUED"
     )
   ) {
@@ -342,27 +390,34 @@ function isScheduleMessage(message) {
   }
 
   const firstLine =
-    message.content
+    content
       .split("\n")[0]
       .trim();
 
-  return CATEGORIES.some(category => {
-    const normal =
-      `${categoryEmoji(category)} **${category.toUpperCase()}**`;
+  return CATEGORIES.some(
+    category => {
+      const normal =
+        `${categoryEmoji(category)} **${category.toUpperCase()}**`;
 
-    const continued =
-      `${categoryEmoji(category)} **${category.toUpperCase()} — CONTINUED**`;
+      const continued =
+        `${categoryEmoji(category)} **${category.toUpperCase()} — CONTINUED**`;
 
-    return (
-      firstLine === normal ||
-      firstLine === continued
-    );
-  });
+      return (
+        firstLine === normal ||
+        firstLine === continued
+      );
+    }
+  );
 }
 
-function getScheduleMessageCategory(message) {
+function getScheduleMessageCategory(
+  message
+) {
+  const content =
+    String(message?.content ?? "");
+
   const firstLine =
-    message.content
+    content
       .split("\n")[0]
       .trim();
 
@@ -384,10 +439,13 @@ function getScheduleMessageCategory(message) {
   return null;
 }
 
-async function findScheduleMessages(channel) {
-  const fetched = await channel.messages.fetch({
-    limit: 100
-  });
+async function findScheduleMessages(
+  channel
+) {
+  const fetched =
+    await channel.messages.fetch({
+      limit: 100
+    });
 
   return fetched
     .filter(message =>
@@ -405,13 +463,17 @@ async function updateScheduleMessages(
   categoryMessages
 ) {
   const existing =
-    await findScheduleMessages(channel);
+    await findScheduleMessages(
+      channel
+    );
 
   const groupedExisting = {};
 
   for (const message of existing) {
     const category =
-      getScheduleMessageCategory(message);
+      getScheduleMessageCategory(
+        message
+      );
 
     if (!category) {
       continue;
@@ -421,10 +483,13 @@ async function updateScheduleMessages(
       groupedExisting[category] = [];
     }
 
-    groupedExisting[category].push(message);
+    groupedExisting[category].push(
+      message
+    );
   }
 
-  const existingByKey = new Map();
+  const existingByKey =
+    new Map();
 
   for (const category of CATEGORIES) {
     if (!groupedExisting[category]) {
@@ -447,10 +512,13 @@ async function updateScheduleMessages(
     );
   }
 
-  const usedMessageIds = new Set();
+  const usedMessageIds =
+    new Set();
+
   const updatedMessages = [];
 
-  let createdScheduleMessage = false;
+  let createdScheduleMessage =
+    false;
 
   for (const item of categoryMessages) {
     const key =
@@ -478,7 +546,9 @@ async function updateScheduleMessages(
       );
     } else {
       const newMessage =
-        await channel.send(item.content);
+        await channel.send(
+          item.content
+        );
 
       usedMessageIds.add(
         newMessage.id
@@ -488,13 +558,16 @@ async function updateScheduleMessages(
         newMessage
       );
 
-      createdScheduleMessage = true;
+      createdScheduleMessage =
+        true;
     }
   }
 
   for (const message of existing) {
     if (
-      !usedMessageIds.has(message.id)
+      !usedMessageIds.has(
+        message.id
+      )
     ) {
       try {
         await message.delete();
@@ -507,7 +580,8 @@ async function updateScheduleMessages(
     }
   }
 
-  scheduleMessages = updatedMessages;
+  scheduleMessages =
+    updatedMessages;
 
   return createdScheduleMessage;
 }
@@ -515,25 +589,33 @@ async function updateScheduleMessages(
 function isActivityMessage(message) {
   if (
     !message ||
-    message.author.id !== client.user.id
+    !client.user ||
+    message.author?.id !==
+      client.user.id
   ) {
     return false;
   }
 
+  const content =
+    String(message.content ?? "");
+
   return (
-    message.content.includes(
+    content.includes(
       "🔴 **LIVE NOW**"
     ) ||
-    message.content.includes(
+    content.includes(
       "🔔 **Schedule updated**"
     )
   );
 }
 
-async function findActivityMessages(channel) {
-  const fetched = await channel.messages.fetch({
-    limit: 100
-  });
+async function findActivityMessages(
+  channel
+) {
+  const fetched =
+    await channel.messages.fetch({
+      limit: 100
+    });
 
   return fetched
     .filter(message =>
@@ -546,9 +628,13 @@ async function findActivityMessages(channel) {
     );
 }
 
-async function deleteActivityMessage(channel) {
+async function deleteActivityMessage(
+  channel
+) {
   const messages =
-    await findActivityMessages(channel);
+    await findActivityMessages(
+      channel
+    );
 
   for (const message of messages) {
     try {
@@ -564,7 +650,9 @@ async function deleteActivityMessage(channel) {
   activityMessage = null;
 }
 
-function buildLiveMessage(liveEvents) {
+function buildLiveMessage(
+  liveEvents
+) {
   const lines = [
     "🔴 **LIVE NOW**",
     ""
@@ -595,20 +683,26 @@ async function sendLiveMessage(
   channel,
   liveEvents
 ) {
-  await deleteActivityMessage(channel);
+  await deleteActivityMessage(
+    channel
+  );
 
   if (!liveEvents.length) {
     return;
   }
 
   const content =
-    buildLiveMessage(liveEvents);
+    buildLiveMessage(
+      liveEvents
+    );
 
   activityMessage =
     await channel.send(content);
 }
 
-function buildUpdateMessage(newEvents) {
+function buildUpdateMessage(
+  newEvents
+) {
   if (newEvents.length === 1) {
     return [
       "🔔 **Schedule updated**",
@@ -630,10 +724,14 @@ async function sendUpdateNotification(
   channel,
   newEvents
 ) {
-  await deleteActivityMessage(channel);
+  await deleteActivityMessage(
+    channel
+  );
 
   const content =
-    buildUpdateMessage(newEvents);
+    buildUpdateMessage(
+      newEvents
+    );
 
   activityMessage =
     await channel.send(content);
@@ -672,7 +770,9 @@ function detectChanges(
   const endedLive = [];
 
   for (const event of current) {
-    const key = eventKey(event);
+    const key =
+      eventKey(event);
+
     const oldEvent =
       previousMap.get(key);
 
@@ -695,7 +795,8 @@ function detectChanges(
   }
 
   for (const oldEvent of previous) {
-    const key = eventKey(oldEvent);
+    const key =
+      eventKey(oldEvent);
 
     if (
       oldEvent.isLive &&
@@ -718,25 +819,36 @@ async function ensureLiveMessage(
   forceNew = false
 ) {
   if (!liveEvents.length) {
-    await deleteActivityMessage(channel);
+    await deleteActivityMessage(
+      channel
+    );
+
     return;
   }
 
   const existing =
-    await findActivityMessages(channel);
+    await findActivityMessages(
+      channel
+    );
 
   const liveMessage =
     existing.find(message =>
-      message.content.includes(
+      String(
+        message.content ?? ""
+      ).includes(
         "🔴 **LIVE NOW**"
       )
     );
 
-  if (forceNew || !liveMessage) {
+  if (
+    forceNew ||
+    !liveMessage
+  ) {
     await sendLiveMessage(
       channel,
       liveEvents
     );
+
     return;
   }
 
@@ -744,7 +856,10 @@ async function ensureLiveMessage(
     liveMessage;
 
   for (const message of existing) {
-    if (message.id !== liveMessage.id) {
+    if (
+      message.id !==
+      liveMessage.id
+    ) {
       try {
         await message.delete();
       } catch {}
@@ -763,6 +878,7 @@ async function updateSchedule() {
       console.error(
         "Discord channel not found."
       );
+
       return;
     }
 
@@ -770,15 +886,19 @@ async function updateSchedule() {
       await fetchAllEvents();
 
     const events =
-      processEvents(rawEvents);
+      processEvents(
+        rawEvents
+      );
 
     const liveEvents =
-      events.filter(event =>
-        event.isLive
+      events.filter(
+        event => event.isLive
       );
 
     const upcomingEvents =
-      getUpcomingEvents(events);
+      getUpcomingEvents(
+        events
+      );
 
     const {
       newEvents,
@@ -840,7 +960,9 @@ async function updateSchedule() {
     console.log(
       `[${DateTime.now()
         .setZone("Africa/Nairobi")
-        .toFormat("yyyy-MM-dd HH:mm:ss")}] ` +
+        .toFormat(
+          "yyyy-MM-dd HH:mm:ss"
+        )}] ` +
       `Schedule updated | ` +
       `Live: ${liveEvents.length} | ` +
       `Upcoming: ${upcomingEvents.length}`
@@ -853,23 +975,27 @@ async function updateSchedule() {
   }
 }
 
-client.once("clientReady", async () => {
-  console.log(
-    `Logged in as ${client.user.tag}`
-  );
+client.once(
+  "clientReady",
+  async () => {
+    console.log(
+      `Logged in as ${client.user.tag}`
+    );
 
-  await updateSchedule();
+    await updateSchedule();
 
-  setInterval(
-    updateSchedule,
-    POLL_INTERVAL
-  );
-});
+    setInterval(
+      updateSchedule,
+      POLL_INTERVAL
+    );
+  }
+);
 
 if (!TOKEN) {
   console.error(
     "DISCORD_TOKEN is missing."
   );
+
   process.exit(1);
 }
 
@@ -877,6 +1003,7 @@ if (!CHANNEL_ID) {
   console.error(
     "DISCORD_CHANNEL_ID is missing."
   );
+
   process.exit(1);
 }
 
