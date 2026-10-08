@@ -7,7 +7,6 @@ const CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;
 const POLL_INTERVAL = 60 * 1000;
 const EVENT_WINDOW = 48 * 60 * 60 * 1000;
 
-// Stay below Discord's 2000-character limit.
 const SCHEDULE_MAX_LENGTH = 1900;
 
 const CATEGORIES = [
@@ -43,21 +42,11 @@ let previousEvents = null;
 let scheduleMessages = [];
 let activityMessage = null;
 
-
-/* =========================================================
-   TIME
-========================================================= */
-
 function parseEAT(dateString) {
   return DateTime.fromISO(dateString, {
     zone: "Africa/Nairobi"
   });
 }
-
-
-/* =========================================================
-   CATEGORY EMOJIS
-========================================================= */
 
 function categoryEmoji(category) {
   const emojis = {
@@ -79,20 +68,12 @@ function categoryEmoji(category) {
   return emojis[category] || "📺";
 }
 
-
-/* =========================================================
-   FETCH ONE CATEGORY
-========================================================= */
-
 async function fetchCategory(category) {
   try {
     const response = await fetch(`${API_BASE}/${category}.json`);
 
     if (!response.ok) {
-      console.error(
-        `Failed to fetch ${category}: ${response.status}`
-      );
-      return [];
+      throw new Error(`HTTP ${response.status}`);
     }
 
     const data = await response.json();
@@ -104,44 +85,33 @@ async function fetchCategory(category) {
     const events = [];
 
     for (const group of data.streams) {
-      if (!Array.isArray(group.streams)) {
-        continue;
-      }
+      if (!group || !Array.isArray(group.streams)) continue;
 
-      for (const event of group.streams) {
+      for (const stream of group.streams) {
         if (
-          !event.name ||
-          !event.starts_at ||
-          !event.ends_at
+          !stream ||
+          !stream.name ||
+          !stream.starts_at ||
+          !stream.ends_at
         ) {
           continue;
         }
 
         events.push({
           category,
-          name: event.name,
-          starts_at: event.starts_at,
-          ends_at: event.ends_at
+          name: stream.name,
+          starts_at: stream.starts_at,
+          ends_at: stream.ends_at
         });
       }
     }
 
     return events;
-
   } catch (error) {
-    console.error(
-      `Error fetching ${category}:`,
-      error.message
-    );
-
+    console.error(`Failed to fetch ${category}:`, error.message);
     return [];
   }
 }
-
-
-/* =========================================================
-   FETCH ALL CATEGORIES
-========================================================= */
 
 async function fetchAllEvents() {
   const results = await Promise.all(
@@ -150,11 +120,6 @@ async function fetchAllEvents() {
 
   return results.flat();
 }
-
-
-/* =========================================================
-   EVENT KEY
-========================================================= */
 
 function eventKey(event) {
   return [
@@ -165,17 +130,15 @@ function eventKey(event) {
   ].join("|");
 }
 
-
-/* =========================================================
-   PROCESS EVENTS
-========================================================= */
-
-function processEvents(events) {
+function processEvents(rawEvents) {
   const now = DateTime.now().setZone("Africa/Nairobi");
+  const windowEnd = now.plus({
+    milliseconds: EVENT_WINDOW
+  });
 
-  const filtered = [];
+  const events = [];
 
-  for (const event of events) {
+  for (const event of rawEvents) {
     const start = parseEAT(event.starts_at);
     const end = parseEAT(event.ends_at);
 
@@ -187,87 +150,70 @@ function processEvents(events) {
       now >= start &&
       now < end;
 
-    const startsWithin48Hours =
+    const isUpcoming =
       start > now &&
-      start <= now.plus({
-        milliseconds: EVENT_WINDOW
-      });
+      start <= windowEnd;
 
-    if (isLive || startsWithin48Hours) {
-      filtered.push({
-        ...event,
-        start,
-        end,
-        isLive
-      });
+    if (!isLive && !isUpcoming) {
+      continue;
     }
+
+    events.push({
+      ...event,
+      start,
+      end,
+      isLive
+    });
   }
 
-  filtered.sort(
-    (a, b) =>
-      a.start.toMillis() -
-      b.start.toMillis()
+  events.sort(
+    (a, b) => a.start.toMillis() - b.start.toMillis()
   );
 
-  return filtered;
+  return events;
 }
-
-
-/* =========================================================
-   UPCOMING EVENTS
-========================================================= */
 
 function getUpcomingEvents(events) {
   return events
     .filter(event => !event.isLive)
     .sort(
       (a, b) =>
-        a.start.toMillis() -
-        b.start.toMillis()
+        a.start.toMillis() - b.start.toMillis()
     );
 }
-
-
-/* =========================================================
-   COUNTDOWN
-========================================================= */
 
 function formatCountdown(start) {
   const now = DateTime.now().setZone("Africa/Nairobi");
 
   const diffMs =
-    start.toMillis() -
-    now.toMillis();
+    start.toMillis() - now.toMillis();
 
   if (diffMs <= 0) {
     return "LIVE";
   }
 
-  const totalMinutes =
-    Math.floor(
-      diffMs / (60 * 1000)
-    );
+  const totalMinutes = Math.floor(
+    diffMs / (60 * 1000)
+  );
 
-  const minutesSafe =
-    Math.max(1, totalMinutes);
+  const minutesSafe = Math.max(
+    1,
+    totalMinutes
+  );
 
-  // 24 hours or more
   if (minutesSafe >= 24 * 60) {
-    const days =
-      Math.ceil(
-        minutesSafe / (24 * 60)
-      );
+    const days = Math.ceil(
+      minutesSafe / (24 * 60)
+    );
 
     return `in ${days} ${
       days === 1 ? "day" : "days"
     }`;
   }
 
-  // 1 hour or more
-  const hours =
-    Math.floor(
-      minutesSafe / 60
-    );
+  const hours = Math.floor(
+    minutesSafe / 60
+  );
 
   if (hours >= 1) {
     return `in ${hours} ${
@@ -275,34 +221,22 @@ function formatCountdown(start) {
     }`;
   }
 
-  // Less than 1 hour
   return `in ${minutesSafe} ${
-    minutesSafe === 1
-      ? "minute"
-      : "minutes"
+    minutesSafe === 1 ? "minute" : "minutes"
   }`;
 }
 
-
-/* =========================================================
-   BUILD SCHEDULE LINES
-========================================================= */
-
-function buildScheduleLines(events) {
-  const lines = [];
-
-  lines.push("━━━━━━━━━━━━━━━━━━━━");
-  lines.push("        **FUTBOL-X**");
-  lines.push("     **LIVE & UPCOMING**");
-  lines.push("━━━━━━━━━━━━━━━━━━━━");
+function buildCategoryMessages(events) {
+  const now = DateTime.now().setZone("Africa/Nairobi");
+  const checkedAt = now.toFormat("HH:mm");
 
   const grouped = {};
 
-  for (const event of events) {
-    if (event.isLive) {
-      continue;
-    }
+  for (const category of CATEGORIES) {
+    grouped[category] = [];
+  }
 
+  for (const event of events) {
     if (!grouped[event.category]) {
       grouped[event.category] = [];
     }
@@ -310,186 +244,85 @@ function buildScheduleLines(events) {
     grouped[event.category].push(event);
   }
 
-  let categoryCount = 0;
+  const messages = [];
 
   for (const category of CATEGORIES) {
-    const categoryEvents =
-      grouped[category];
+    const categoryEvents = grouped[category];
 
-    if (
-      !categoryEvents ||
-      categoryEvents.length === 0
-    ) {
+    if (!categoryEvents.length) {
       continue;
     }
 
-    if (categoryCount > 0) {
-      lines.push("");
-    }
-
-    lines.push(
-      `${categoryEmoji(category)} **${category.toUpperCase()}**`
+    categoryEvents.sort(
+      (a, b) =>
+        a.start.toMillis() - b.start.toMillis()
     );
+
+    const emoji = categoryEmoji(category);
+    const title = category.toUpperCase();
+
+    let messageNumber = 1;
+
+    let currentLines = [
+      `${emoji} **${title}**`,
+      ""
+    ];
 
     for (const event of categoryEvents) {
-      const time =
-        event.start.toFormat("h:mm a");
+      const time = event.start.toFormat("h:mm a");
+      const countdown = formatCountdown(event.start);
 
-      const countdown =
-        formatCountdown(event.start);
+      const eventLine =
+        `• **${event.name}** — **${time}** (${countdown})`;
 
-      // IMPORTANT:
-      // The complete fixture is ONE line.
-      // It will never be intentionally split.
-      lines.push(
-        `• **${event.name}** — ${time} (${countdown})`
-      );
-    }
+      const candidate = [
+        ...currentLines,
+        eventLine,
+        "",
+        `Today at ${checkedAt}`
+      ].join("\n");
 
-    categoryCount++;
-  }
+      if (
+        candidate.length <= SCHEDULE_MAX_LENGTH
+      ) {
+        currentLines.push(eventLine);
+        continue;
+      }
 
-  if (categoryCount === 0) {
-    lines.push("");
-    lines.push("*No upcoming events.*");
-  }
-
-  return lines;
-}
-
-
-/* =========================================================
-   BUILD MULTIPLE SCHEDULE MESSAGES
-   =========================================================
-
-   IMPORTANT:
-
-   Each line is indivisible.
-
-   Example:
-
-   • **Manchester City vs Manchester United** — 8:00 PM (in 2 hours)
-
-   If that entire line doesn't fit in the current
-   Discord message, the ENTIRE line moves to the
-   next message.
-
-   It will NOT become:
-
-   Message 1:
-   • Manchester City vs
-
-   Message 2:
-   Manchester United
-========================================================= */
-
-function buildScheduleMessages(events) {
-  const lines =
-    buildScheduleLines(events);
-
-  const chunks = [];
-
-  let current = "";
-  let chunkNumber = 0;
-
-  const continuationHeader =
-    "**FUTBOL-X • SCHEDULE CONTINUED**";
-
-  for (const line of lines) {
-
-    const prefix =
-      chunkNumber === 0
-        ? ""
-        : continuationHeader + "\n";
-
-    const candidate =
-      current.length > 0
-        ? `${current}\n${line}`
-        : `${prefix}${line}`;
-
-    // The complete line fits.
-    if (
-      candidate.length <=
-      SCHEDULE_MAX_LENGTH
-    ) {
-      current = candidate;
-      continue;
-    }
-
-    // Current message is full enough.
-    if (current.length > 0) {
-      chunks.push(
-        current.trim()
+      currentLines.push(
+        "",
+        `Today at ${checkedAt}`
       );
 
-      chunkNumber++;
+      messages.push({
+        category,
+        messageNumber,
+        content: currentLines.join("\n")
+      });
+
+      messageNumber++;
+
+      currentLines = [
+        `${emoji} **${title} — CONTINUED**`,
+        "",
+        eventLine
+      ];
     }
 
-    const newPrefix =
-      chunkNumber === 0
-        ? ""
-        : continuationHeader + "\n";
-
-    const completeLine =
-      `${newPrefix}${line}`;
-
-    /*
-      A normal fixture should never be anywhere
-      close to 1900 characters.
-
-      If a single line somehow exceeds the limit,
-      we DO NOT slice it in half because that would
-      recreate the exact problem we're preventing.
-
-      Instead, shorten only an absurdly long event
-      name while keeping the fixture on ONE line.
-    */
-
-    if (
-      completeLine.length >
-      SCHEDULE_MAX_LENGTH
-    ) {
-      const availableForLine =
-        SCHEDULE_MAX_LENGTH -
-        newPrefix.length;
-
-      const suffix =
-        "…";
-
-      const shortened =
-        line.slice(
-          0,
-          Math.max(
-            1,
-            availableForLine -
-            suffix.length
-          )
-        ) + suffix;
-
-      current =
-        `${newPrefix}${shortened}`;
-
-      continue;
-    }
-
-    // Start the next message with the
-    // COMPLETE line.
-    current = completeLine;
-  }
-
-  if (current.length > 0) {
-    chunks.push(
-      current.trim()
+    currentLines.push(
+      "",
+      `Today at ${checkedAt}`
     );
+
+    messages.push({
+      category,
+      messageNumber,
+      content: currentLines.join("\n")
+    });
   }
 
-  return chunks;
+  return messages;
 }
-
-
-/* =========================================================
-   IDENTIFY SCHEDULE MESSAGES
-========================================================= */
 
 function isScheduleMessage(message) {
   if (
@@ -499,32 +332,67 @@ function isScheduleMessage(message) {
     return false;
   }
 
-  return (
-    message.content.includes(
-      "LIVE & UPCOMING"
-    ) ||
+  if (
+    message.content.includes("LIVE & UPCOMING") ||
     message.content.includes(
       "FUTBOL-X • SCHEDULE CONTINUED"
     )
-  );
+  ) {
+    return true;
+  }
+
+  const firstLine =
+    message.content
+      .split("\n")[0]
+      .trim();
+
+  return CATEGORIES.some(category => {
+    const normal =
+      `${categoryEmoji(category)} **${category.toUpperCase()}**`;
+
+    const continued =
+      `${categoryEmoji(category)} **${category.toUpperCase()} — CONTINUED**`;
+
+    return (
+      firstLine === normal ||
+      firstLine === continued
+    );
+  });
 }
 
+function getScheduleMessageCategory(message) {
+  const firstLine =
+    message.content
+      .split("\n")[0]
+      .trim();
 
-/* =========================================================
-   FIND SCHEDULE MESSAGES
-========================================================= */
+  for (const category of CATEGORIES) {
+    const normal =
+      `${categoryEmoji(category)} **${category.toUpperCase()}**`;
+
+    const continued =
+      `${categoryEmoji(category)} **${category.toUpperCase()} — CONTINUED**`;
+
+    if (
+      firstLine === normal ||
+      firstLine === continued
+    ) {
+      return category;
+    }
+  }
+
+  return null;
+}
 
 async function findScheduleMessages(channel) {
-  const fetched =
-    await channel.messages.fetch({
-      limit: 100
-    });
+  const fetched = await channel.messages.fetch({
+    limit: 100
+  });
 
-  const messages =
-    Array.from(fetched.values());
-
-  return messages
-    .filter(isScheduleMessage)
+  return fetched
+    .filter(message =>
+      isScheduleMessage(message)
+    )
     .sort(
       (a, b) =>
         a.createdTimestamp -
@@ -532,98 +400,104 @@ async function findScheduleMessages(channel) {
     );
 }
 
-
-/* =========================================================
-   UPDATE SCHEDULE MESSAGES
-========================================================= */
-
 async function updateScheduleMessages(
   channel,
-  contents
+  categoryMessages
 ) {
-  let existing =
+  const existing =
     await findScheduleMessages(channel);
 
-  let createdNewMessage = false;
+  const groupedExisting = {};
 
-  const commonCount =
-    Math.min(
-      existing.length,
-      contents.length
+  for (const message of existing) {
+    const category =
+      getScheduleMessageCategory(message);
+
+    if (!category) {
+      continue;
+    }
+
+    if (!groupedExisting[category]) {
+      groupedExisting[category] = [];
+    }
+
+    groupedExisting[category].push(message);
+  }
+
+  const existingByKey = new Map();
+
+  for (const category of CATEGORIES) {
+    if (!groupedExisting[category]) {
+      continue;
+    }
+
+    groupedExisting[category].sort(
+      (a, b) =>
+        a.createdTimestamp -
+        b.createdTimestamp
     );
 
-  /*
-    Edit existing messages first.
-  */
-
-  for (
-    let i = 0;
-    i < commonCount;
-    i++
-  ) {
-    try {
-      await existing[i].edit(
-        contents[i]
-      );
-    } catch (error) {
-      console.error(
-        `Failed to edit schedule message ${i + 1}:`,
-        error.message
-      );
-    }
-  }
-
-  /*
-    Create additional messages
-    when the schedule needs more chunks.
-  */
-
-  if (
-    contents.length >
-    existing.length
-  ) {
-    for (
-      let i = existing.length;
-      i < contents.length;
-      i++
-    ) {
-      try {
-        const newMessage =
-          await channel.send(
-            contents[i]
-          );
-
-        existing.push(
-          newMessage
-        );
-
-        createdNewMessage = true;
-
-      } catch (error) {
-        console.error(
-          `Failed to create schedule message ${i + 1}:`,
-          error.message
+    groupedExisting[category].forEach(
+      (message, index) => {
+        existingByKey.set(
+          `${category}:${index + 1}`,
+          message
         );
       }
+    );
+  }
+
+  const usedMessageIds = new Set();
+  const updatedMessages = [];
+
+  let createdScheduleMessage = false;
+
+  for (const item of categoryMessages) {
+    const key =
+      `${item.category}:${item.messageNumber}`;
+
+    const existingMessage =
+      existingByKey.get(key);
+
+    if (existingMessage) {
+      if (
+        existingMessage.content !==
+        item.content
+      ) {
+        await existingMessage.edit(
+          item.content
+        );
+      }
+
+      usedMessageIds.add(
+        existingMessage.id
+      );
+
+      updatedMessages.push(
+        existingMessage
+      );
+    } else {
+      const newMessage =
+        await channel.send(item.content);
+
+      usedMessageIds.add(
+        newMessage.id
+      );
+
+      updatedMessages.push(
+        newMessage
+      );
+
+      createdScheduleMessage = true;
     }
   }
 
-  /*
-    Delete extra old messages
-    when the schedule becomes shorter.
-  */
-
-  if (
-    existing.length >
-    contents.length
-  ) {
-    for (
-      let i = contents.length;
-      i < existing.length;
-      i++
+  for (const message of existing) {
+    if (
+      !usedMessageIds.has(message.id)
     ) {
       try {
-        await existing[i].delete();
+        await message.delete();
       } catch (error) {
         console.error(
           "Failed to delete old schedule message:",
@@ -631,24 +505,12 @@ async function updateScheduleMessages(
         );
       }
     }
-
-    existing =
-      existing.slice(
-        0,
-        contents.length
-      );
   }
 
-  scheduleMessages =
-    existing;
+  scheduleMessages = updatedMessages;
 
-  return createdNewMessage;
+  return createdScheduleMessage;
 }
-
-
-/* =========================================================
-   ACTIVITY MESSAGES
-========================================================= */
 
 function isActivityMessage(message) {
   if (
@@ -668,22 +530,15 @@ function isActivityMessage(message) {
   );
 }
 
-
-/* =========================================================
-   FIND ACTIVITY MESSAGES
-========================================================= */
-
 async function findActivityMessages(channel) {
-  const fetched =
-    await channel.messages.fetch({
-      limit: 100
-    });
+  const fetched = await channel.messages.fetch({
+    limit: 100
+  });
 
-  const messages =
-    Array.from(fetched.values());
-
-  return messages
-    .filter(isActivityMessage)
+  return fetched
+    .filter(message =>
+      isActivityMessage(message)
+    )
     .sort(
       (a, b) =>
         b.createdTimestamp -
@@ -691,172 +546,104 @@ async function findActivityMessages(channel) {
     );
 }
 
-
-/* =========================================================
-   DELETE ACTIVITY MESSAGE
-========================================================= */
-
-async function deleteActivityMessage(
-  channel
-) {
+async function deleteActivityMessage(channel) {
   const messages =
-    await findActivityMessages(
-      channel
-    );
+    await findActivityMessages(channel);
 
   for (const message of messages) {
     try {
       await message.delete();
-    } catch {}
+    } catch (error) {
+      console.error(
+        "Failed to delete activity message:",
+        error.message
+      );
+    }
   }
 
   activityMessage = null;
 }
 
-
-/* =========================================================
-   BUILD LIVE MESSAGE
-========================================================= */
-
-function buildLiveMessage(
-  liveEvents
-) {
-  let message =
-    "🔴 **LIVE NOW**\n\n";
+function buildLiveMessage(liveEvents) {
+  const lines = [
+    "🔴 **LIVE NOW**",
+    ""
+  ];
 
   for (const event of liveEvents) {
-    const emoji =
-      categoryEmoji(
-        event.category
-      );
-
-    message +=
-      `${emoji} **${event.name}**\n`;
-
-    message +=
-      "🔴 LIVE\n\n";
+    lines.push(
+      `${categoryEmoji(event.category)} **${event.name}**`,
+      "🔴 LIVE",
+      ""
+    );
   }
 
-  message +=
-    "━━━━━━━━━━━━━━━━━━━━\n\n";
+  lines.push(
+    "━━━━━━━━━━━━━━━━━━━━",
+    "",
+    "🔗 **Events Links Here;**",
+    EVENTS_LINK,
+    "",
+    "📝 **Event Request Here;**",
+    REQUEST_LINK
+  );
 
-  message +=
-    "🔗 **Events Links Here;**\n";
-
-  message +=
-    `${EVENTS_LINK}\n\n`;
-
-  message +=
-    "📝 **Event Request Here;**\n";
-
-  message +=
-    `${REQUEST_LINK}`;
-
-  return message.trim();
+  return lines.join("\n");
 }
-
-
-/* =========================================================
-   SEND LIVE MESSAGE
-========================================================= */
 
 async function sendLiveMessage(
   channel,
   liveEvents
 ) {
-  // Remove previous LIVE/UPDATE activity.
-  await deleteActivityMessage(
-    channel
-  );
+  await deleteActivityMessage(channel);
 
-  // If nothing is live, stop here.
-  if (
-    liveEvents.length === 0
-  ) {
-    console.log(
-      "No live events - LIVE message removed."
-    );
-
+  if (!liveEvents.length) {
     return;
   }
 
-  activityMessage =
-    await channel.send(
-      buildLiveMessage(
-        liveEvents
-      )
-    );
+  const content =
+    buildLiveMessage(liveEvents);
 
-  console.log(
-    `LIVE message sent: ${liveEvents.length} live event(s)`
-  );
+  activityMessage =
+    await channel.send(content);
 }
 
-
-/* =========================================================
-   UPDATE NOTIFICATION
-========================================================= */
-
-function buildUpdateMessage(
-  newEvents = []
-) {
-  if (
-    newEvents.length === 1
-  ) {
-    return (
-      `🔔 **Schedule updated**\n` +
+function buildUpdateMessage(newEvents) {
+  if (newEvents.length === 1) {
+    return [
+      "🔔 **Schedule updated**",
       `New event added: **${newEvents[0].name}**`
-    );
+    ].join("\n");
   }
 
-  if (
-    newEvents.length > 1
-  ) {
-    return (
-      `🔔 **Schedule updated**\n` +
+  if (newEvents.length > 1) {
+    return [
+      "🔔 **Schedule updated**",
       `${newEvents.length} new events added.`
-    );
+    ].join("\n");
   }
 
   return "🔔 **Schedule updated**";
 }
 
-
-/* =========================================================
-   SEND UPDATE NOTIFICATION
-========================================================= */
-
 async function sendUpdateNotification(
   channel,
   newEvents
 ) {
-  await deleteActivityMessage(
-    channel
-  );
+  await deleteActivityMessage(channel);
+
+  const content =
+    buildUpdateMessage(newEvents);
 
   activityMessage =
-    await channel.send(
-      buildUpdateMessage(
-        newEvents
-      )
-    );
-
-  console.log(
-    `Update notification sent: ${newEvents.length} new event(s)`
-  );
+    await channel.send(content);
 }
 
-
-/* =========================================================
-   DETECT CHANGES
-========================================================= */
-
 function detectChanges(
-  currentEvents
+  previous,
+  current
 ) {
-  if (
-    previousEvents === null
-  ) {
+  if (!previous) {
     return {
       newEvents: [],
       newlyLive: [],
@@ -866,93 +653,55 @@ function detectChanges(
 
   const previousMap =
     new Map(
-      previousEvents.map(
-        event => [
-          eventKey(event),
-          event
-        ]
-      )
+      previous.map(event => [
+        eventKey(event),
+        event
+      ])
     );
 
   const currentMap =
     new Map(
-      currentEvents.map(
-        event => [
-          eventKey(event),
-          event
-        ]
-      )
+      current.map(event => [
+        eventKey(event),
+        event
+      ])
     );
 
   const newEvents = [];
   const newlyLive = [];
   const endedLive = [];
 
-  /*
-    New events.
-  */
-
-  for (
-    const event of currentEvents
-  ) {
-    const key =
-      eventKey(event);
-
-    if (
-      !previousMap.has(key)
-    ) {
-      newEvents.push(event);
-    }
-  }
-
-  /*
-    Events that changed
-    from upcoming -> LIVE.
-  */
-
-  for (
-    const event of currentEvents
-  ) {
-    const key =
-      eventKey(event);
-
-    const previous =
+  for (const event of current) {
+    const key = eventKey(event);
+    const oldEvent =
       previousMap.get(key);
 
+    if (!oldEvent) {
+      newEvents.push(event);
+
+      if (event.isLive) {
+        newlyLive.push(event);
+      }
+
+      continue;
+    }
+
     if (
-      event.isLive &&
-      previous &&
-      !previous.isLive
+      !oldEvent.isLive &&
+      event.isLive
     ) {
       newlyLive.push(event);
     }
   }
 
-  /*
-    Events that were LIVE
-    but are no longer LIVE.
-  */
-
-  for (
-    const previous of previousEvents
-  ) {
-    if (!previous.isLive) {
-      continue;
-    }
-
-    const key =
-      eventKey(previous);
-
-    const current =
-      currentMap.get(key);
+  for (const oldEvent of previous) {
+    const key = eventKey(oldEvent);
 
     if (
-      !current ||
-      !current.isLive
+      oldEvent.isLive &&
+      !currentMap.has(key)
     ) {
-      endedLive.push(
-        previous
-      );
+      endedLive.push(oldEvent);
     }
   }
 
@@ -963,75 +712,45 @@ function detectChanges(
   };
 }
 
-
-/* =========================================================
-   ENSURE LIVE MESSAGE
-========================================================= */
-
 async function ensureLiveMessage(
   channel,
   liveEvents,
   forceNew = false
 ) {
-  const activities =
-    await findActivityMessages(
-      channel
-    );
+  if (!liveEvents.length) {
+    await deleteActivityMessage(channel);
+    return;
+  }
+
+  const existing =
+    await findActivityMessages(channel);
 
   const liveMessage =
-    activities.find(
-      message =>
-        message.content.includes(
-          "🔴 **LIVE NOW**"
-        )
+    existing.find(message =>
+      message.content.includes(
+        "🔴 **LIVE NOW**"
+      )
     );
 
-  /*
-    New LIVE event or schedule message
-    was newly created -> send a fresh
-    LIVE message so Discord gives the
-    channel a new-message indicator.
-  */
-
-  if (
-    forceNew ||
-    !liveMessage
-  ) {
+  if (forceNew || !liveMessage) {
     await sendLiveMessage(
       channel,
       liveEvents
     );
-
     return;
-  }
-
-  /*
-    Remove stale activity messages.
-  */
-
-  for (
-    const message of activities
-  ) {
-    if (
-      message.id ===
-      liveMessage.id
-    ) {
-      continue;
-    }
-
-    try {
-      await message.delete();
-    } catch {}
   }
 
   activityMessage =
     liveMessage;
+
+  for (const message of existing) {
+    if (message.id !== liveMessage.id) {
+      try {
+        await message.delete();
+      } catch {}
+    }
+  }
 }
-
-
-/* =========================================================
-   MAIN SCHEDULE UPDATE
-========================================================= */
 
 async function updateSchedule() {
   try {
@@ -1040,267 +759,125 @@ async function updateSchedule() {
         CHANNEL_ID
       );
 
-    if (
-      !channel ||
-      !channel.isTextBased()
-    ) {
+    if (!channel) {
       console.error(
-        "Configured channel is not a text channel."
+        "Discord channel not found."
       );
-
       return;
     }
 
-    /*
-      Fetch everything.
-    */
-
-    const allEvents =
+    const rawEvents =
       await fetchAllEvents();
 
-    /*
-      Keep:
-      - currently live events
-      - upcoming events within 48 hours
-    */
-
     const events =
-      processEvents(
-        allEvents
-      );
-
-    /*
-      Separate LIVE and upcoming.
-    */
+      processEvents(rawEvents);
 
     const liveEvents =
-      events.filter(
-        event => event.isLive
+      events.filter(event =>
+        event.isLive
       );
 
     const upcomingEvents =
-      getUpcomingEvents(
-        events
-      );
-
-    /*
-      Detect changes since last poll.
-    */
+      getUpcomingEvents(events);
 
     const {
       newEvents,
       newlyLive,
       endedLive
-    } =
-      detectChanges(
-        events
-      );
+    } = detectChanges(
+      previousEvents,
+      events
+    );
 
-    /*
-      Build schedule.
-
-      IMPORTANT:
-      Every fixture remains a complete
-      indivisible line.
-    */
-
-    const scheduleContents =
-      buildScheduleMessages(
+    const categoryMessages =
+      buildCategoryMessages(
         upcomingEvents
       );
-
-    /*
-      Update schedule messages.
-    */
 
     const createdScheduleMessage =
       await updateScheduleMessages(
         channel,
-        scheduleContents
+        categoryMessages
       );
 
-
-    /* =====================================================
-       ACTIVITY LOGIC
-    ===================================================== */
-
-    /*
-      A new event became LIVE.
-      Delete old activity and create
-      a brand-new LIVE NOW message.
-    */
-
-    if (
-      newlyLive.length > 0
-    ) {
+    if (newlyLive.length) {
       await sendLiveMessage(
         channel,
         liveEvents
       );
-    }
-
-    /*
-      A LIVE event ended.
-
-      Immediately rebuild the LIVE message
-      so ended events disappear on this poll.
-    */
-
-    else if (
-      endedLive.length > 0
-    ) {
+    } else if (endedLive.length) {
       await sendLiveMessage(
         channel,
         liveEvents
       );
+    } else if (newEvents.length) {
+      const hasNewLive =
+        newEvents.some(
+          event => event.isLive
+        );
 
-      console.log(
-        `Live event(s) ended: ${endedLive.length}`
-      );
-    }
-
-    /*
-      New upcoming event appeared.
-    */
-
-    else if (
-      newEvents.length > 0
-    ) {
-
-      /*
-        If something is currently LIVE,
-        LIVE NOW must remain the newest
-        activity message.
-      */
-
-      if (
-        liveEvents.length > 0
-      ) {
+      if (hasNewLive) {
         await sendLiveMessage(
           channel,
           liveEvents
         );
-      }
-
-      /*
-        No live events -> send schedule
-        update notification.
-      */
-
-      else {
+      } else {
         await sendUpdateNotification(
           channel,
           newEvents
         );
       }
+    } else {
+      await ensureLiveMessage(
+        channel,
+        liveEvents,
+        createdScheduleMessage
+      );
     }
 
-    /*
-      Nothing structurally changed.
-    */
-
-    else {
-
-      /*
-        If something is live, make sure
-        LIVE NOW exists.
-      */
-
-      if (
-        liveEvents.length > 0
-      ) {
-        await ensureLiveMessage(
-          channel,
-          liveEvents,
-          createdScheduleMessage
-        );
-      }
-
-      /*
-        Nothing is live -> remove any
-        old LIVE/UPDATE message.
-      */
-
-      else {
-        await deleteActivityMessage(
-          channel
-        );
-      }
-    }
-
-
-    /*
-      Save current state for the next
-      60-second poll.
-    */
-
-    previousEvents =
-      events;
-
+    previousEvents = events;
 
     console.log(
-      `Schedule checked: ` +
-      `${events.length} tracked | ` +
-      `${upcomingEvents.length} displayed upcoming | ` +
+      `[${DateTime.now()
+        .setZone("Africa/Nairobi")
+        .toFormat("yyyy-MM-dd HH:mm:ss")}] ` +
+      `Schedule updated | ` +
       `Live: ${liveEvents.length} | ` +
-      `New: ${newEvents.length} | ` +
-      `Newly live: ${newlyLive.length} | ` +
-      `Ended live: ${endedLive.length}`
+      `Upcoming: ${upcomingEvents.length}`
     );
-
   } catch (error) {
     console.error(
-      "Schedule update error:",
+      "Schedule update failed:",
       error
     );
   }
 }
 
+client.once("clientReady", async () => {
+  console.log(
+    `Logged in as ${client.user.tag}`
+  );
 
-/* =========================================================
-   BOT READY
-========================================================= */
+  await updateSchedule();
 
-client.once(
-  "clientReady",
-  async () => {
-    console.log(
-      `Logged in as ${client.user.tag}`
-    );
-
-    await updateSchedule();
-
-    setInterval(
-      updateSchedule,
-      POLL_INTERVAL
-    );
-  }
-);
-
-
-/* =========================================================
-   ENVIRONMENT CHECKS
-========================================================= */
+  setInterval(
+    updateSchedule,
+    POLL_INTERVAL
+  );
+});
 
 if (!TOKEN) {
   console.error(
-    "Missing DISCORD_TOKEN environment variable."
+    "DISCORD_TOKEN is missing."
   );
-
   process.exit(1);
 }
 
 if (!CHANNEL_ID) {
   console.error(
-    "Missing DISCORD_CHANNEL_ID environment variable."
+    "DISCORD_CHANNEL_ID is missing."
   );
-
   process.exit(1);
 }
-
-
-/* =========================================================
-   LOGIN
-========================================================= */
 
 client.login(TOKEN);
