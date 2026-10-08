@@ -76,23 +76,22 @@ function categoryEmoji(category) {
 
 async function fetchCategory(category) {
   try {
-    const response = await fetch(
-      `\( {API_BASE}/ \){category}.json`,
-      {
-        headers: {
-          "User-Agent": "FutbolX-Discord-Bot"
-        }
+    const url = API_BASE + "/" + category + ".json";
+
+    const response = await fetch(url, {
+      headers: {
+        "User-Agent": "FutbolX-Discord-Bot"
       }
-    );
+    });
 
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+      throw new Error("HTTP " + response.status);
     }
 
     const data = await response.json();
 
-    // New API structure: data.streams[0].streams
-    if (Array.isArray(data?.streams)) {
+    // New API structure
+    if (data && Array.isArray(data.streams)) {
       const events = [];
       for (const group of data.streams) {
         if (Array.isArray(group.streams)) {
@@ -102,18 +101,18 @@ async function fetchCategory(category) {
       return events;
     }
 
-    // Fallback for old structure
+    // Fallback
     if (Array.isArray(data)) {
       return data;
     }
 
-    if (Array.isArray(data.events)) {
+    if (data && Array.isArray(data.events)) {
       return data.events;
     }
 
     return [];
   } catch (error) {
-    console.error(`[API] ${category}: ${error.message}`);
+    console.error("[API] " + category + ": " + error.message);
     return [];
   }
 }
@@ -198,28 +197,18 @@ function formatCountdown(start) {
   }
 
   if (minutes < 60) {
-    return `in \( {minutes} minute \){
-      minutes === 1 ? "" : "s"
-    }`;
+    return "in " + minutes + " minute" + (minutes === 1 ? "" : "s");
   }
 
-  const hours = Math.floor(
-    minutes / 60
-  );
+  const hours = Math.floor(minutes / 60);
 
   if (hours < 24) {
-    return `in \( {hours} hour \){
-      hours === 1 ? "" : "s"
-    }`;
+    return "in " + hours + " hour" + (hours === 1 ? "" : "s");
   }
 
-  const days = Math.floor(
-    hours / 24
-  );
+  const days = Math.floor(hours / 24);
 
-  return `in \( {days} day \){
-    days === 1 ? "" : "s"
-  }`;
+  return "in " + days + " day" + (days === 1 ? "" : "s");
 }
 
 function buildCategoryData(events) {
@@ -244,8 +233,7 @@ function buildCategoryData(events) {
   const result = [];
 
   for (const category of CATEGORIES) {
-    const categoryEvents =
-      grouped[category];
+    const categoryEvents = grouped[category];
 
     if (!categoryEvents.length) {
       continue;
@@ -257,27 +245,18 @@ function buildCategoryData(events) {
         b.start.toMillis()
     );
 
-    const lines = categoryEvents.map(
-      event => {
-        const time =
-          event.start.toFormat("h:mm a");
+    const lines = categoryEvents.map(event => {
+      const time = event.start.toFormat("h:mm a");
+      const countdown = formatCountdown(event.start);
 
-        const countdown =
-          formatCountdown(event.start);
-
-        return `• **\( {event.name}** — ** \){time}** (${countdown})`;
-      }
-    );
+      return "• **" + event.name + "** — **" + time + "** (" + countdown + ")";
+    });
 
     const embed = new EmbedBuilder()
-      .setTitle(
-        `${categoryEmoji(category)} ${category.toUpperCase()}`
-      )
-      .setDescription(
-        lines.join("\n")
-      )
+      .setTitle(categoryEmoji(category) + " " + category.toUpperCase())
+      .setDescription(lines.join("\n"))
       .setFooter({
-        text: `Today at ${checkedAt}`
+        text: "Today at " + checkedAt
       });
 
     result.push({
@@ -290,18 +269,14 @@ function buildCategoryData(events) {
 }
 
 function getEmbedCategory(message) {
-  const title =
-    message.embeds?.[0]?.title;
+  const title = message.embeds?.[0]?.title;
 
   if (!title) {
     return null;
   }
 
   for (const category of CATEGORIES) {
-    if (
-      title ===
-      `${categoryEmoji(category)} ${category.toUpperCase()}`
-    ) {
+    if (title === categoryEmoji(category) + " " + category.toUpperCase()) {
       return category;
     }
   }
@@ -310,15 +285,11 @@ function getEmbedCategory(message) {
 }
 
 function getOldTextCategory(message) {
-  const content =
-    String(message.content || "");
-
-  const firstLine =
-    content.split("\n")[0].trim();
+  const content = String(message.content || "");
+  const firstLine = content.split("\n")[0].trim();
 
   for (const category of CATEGORIES) {
-    const normal =
-      `\( {categoryEmoji(category)} ** \){category.toUpperCase()}**`;
+    const normal = categoryEmoji(category) + " **" + category.toUpperCase() + "**";
 
     if (firstLine === normal) {
       return category;
@@ -329,10 +300,7 @@ function getOldTextCategory(message) {
 }
 
 function isScheduleMessage(message) {
-  if (
-    !client.user ||
-    message.author?.id !== client.user.id
-  ) {
+  if (!client.user || message.author?.id !== client.user.id) {
     return false;
   }
 
@@ -351,15 +319,13 @@ function getScheduleCategory(message) {
 
 async function findScheduleMessages(channel) {
   const messages = [];
-
   let before;
 
   while (true) {
-    const fetched =
-      await channel.messages.fetch({
-        limit: 100,
-        ...(before ? { before } : {})
-      });
+    const fetched = await channel.messages.fetch({
+      limit: 100,
+      ...(before ? { before } : {})
+    });
 
     if (!fetched.size) {
       break;
@@ -381,35 +347,24 @@ async function findScheduleMessages(channel) {
   return messages;
 }
 
-async function updateScheduleMessages(
-  channel,
-  categoryData
-) {
-  const existing =
-    await findScheduleMessages(channel);
-
+async function updateScheduleMessages(channel, categoryData) {
+  const existing = await findScheduleMessages(channel);
   const byCategory = new Map();
 
   for (const message of existing) {
-    const category =
-      getScheduleCategory(message);
+    const category = getScheduleCategory(message);
 
     if (!category) continue;
 
     if (!byCategory.has(category)) {
-      byCategory.set(
-        category,
-        message
-      );
+      byCategory.set(category, message);
     }
   }
 
-  const activeMessageIds =
-    new Set();
+  const activeMessageIds = new Set();
 
   for (const item of categoryData) {
-    const oldMessage =
-      byCategory.get(item.category);
+    const oldMessage = byCategory.get(item.category);
 
     if (oldMessage) {
       try {
@@ -418,84 +373,54 @@ async function updateScheduleMessages(
           embeds: [item.embed]
         });
 
-        activeMessageIds.add(
-          oldMessage.id
-        );
+        activeMessageIds.add(oldMessage.id);
       } catch (error) {
-        console.error(
-          `[SCHEDULE] Failed editing ${item.category}:`,
-          error.message
-        );
+        console.error("[SCHEDULE] Failed editing " + item.category + ":", error.message);
       }
     } else {
       try {
-        const newMessage =
-          await channel.send({
-            embeds: [item.embed]
-          });
+        const newMessage = await channel.send({
+          embeds: [item.embed]
+        });
 
-        activeMessageIds.add(
-          newMessage.id
-        );
+        activeMessageIds.add(newMessage.id);
 
-        console.log(
-          `[SCHEDULE] New category message: ${item.category}`
-        );
+        console.log("[SCHEDULE] New category message: " + item.category);
       } catch (error) {
-        console.error(
-          `[SCHEDULE] Failed creating ${item.category}:`,
-          error.message
-        );
+        console.error("[SCHEDULE] Failed creating " + item.category + ":", error.message);
       }
     }
   }
 
   for (const message of existing) {
-    if (
-      !activeMessageIds.has(
-        message.id
-      )
-    ) {
+    if (!activeMessageIds.has(message.id)) {
       try {
         await message.delete();
-
-        console.log(
-          `[SCHEDULE] Removed inactive category message: ${message.id}`
-        );
+        console.log("[SCHEDULE] Removed inactive category message: " + message.id);
       } catch (error) {
-        console.error(
-          "[SCHEDULE] Failed deleting old message:",
-          error.message
-        );
+        console.error("[SCHEDULE] Failed deleting old message:", error.message);
       }
     }
   }
 }
 
 function isLiveMessage(message) {
-  if (
-    !client.user ||
-    message.author?.id !== client.user.id
-  ) {
+  if (!client.user || message.author?.id !== client.user.id) {
     return false;
   }
 
-  return String(
-    message.content || ""
-  ).includes("🔴 **LIVE NOW**");
+  return String(message.content || "").includes("🔴 **LIVE NOW**");
 }
 
 async function findLiveMessages(channel) {
   const messages = [];
-
   let before;
 
   while (true) {
-    const fetched =
-      await channel.messages.fetch({
-        limit: 100,
-        ...(before ? { before } : {})
-      });
+    const fetched = await channel.messages.fetch({
+      limit: 100,
+      ...(before ? { before } : {})
+    });
 
     if (!fetched.size) {
       break;
@@ -523,15 +448,8 @@ function buildLiveMessage(liveEvents) {
   }
 
   const lines = liveEvents
-    .sort(
-      (a, b) =>
-        a.start.toMillis() -
-        b.start.toMillis()
-    )
-    .map(
-      event =>
-        `🔴 **${event.name}**`
-    );
+    .sort((a, b) => a.start.toMillis() - b.start.toMillis())
+    .map(event => "🔴 **" + event.name + "**");
 
   return [
     "🔴 **LIVE NOW**",
@@ -540,21 +458,14 @@ function buildLiveMessage(liveEvents) {
   ].join("\n");
 }
 
-async function updateLiveMessage(
-  channel,
-  liveEvents
-) {
-  const existing =
-    await findLiveMessages(channel);
+async function updateLiveMessage(channel, liveEvents) {
+  const existing = await findLiveMessages(channel);
 
   for (const message of existing) {
     try {
       await message.delete();
     } catch (error) {
-      console.error(
-        "[LIVE] Failed deleting old live message:",
-        error.message
-      );
+      console.error("[LIVE] Failed deleting old live message:", error.message);
     }
   }
 
@@ -562,8 +473,7 @@ async function updateLiveMessage(
     return;
   }
 
-  const content =
-    buildLiveMessage(liveEvents);
+  const content = buildLiveMessage(liveEvents);
 
   if (!content) {
     return;
@@ -574,17 +484,11 @@ async function updateLiveMessage(
       content
     });
   } catch (error) {
-    console.error(
-      "[LIVE] Failed sending live message:",
-      error.message
-    );
+    console.error("[LIVE] Failed sending live message:", error.message);
   }
 }
 
-function detectLiveChanges(
-  oldEvents,
-  newEvents
-) {
+function detectLiveChanges(oldEvents, newEvents) {
   if (!oldEvents) {
     return {
       newlyLive: [],
@@ -594,14 +498,14 @@ function detectLiveChanges(
 
   const oldMap = new Map(
     oldEvents.map(event => [
-      `\( {event.category}| \){event.name}|${event.starts_at}`,
+      event.category + "|" + event.name + "|" + event.starts_at,
       event
     ])
   );
 
   const newMap = new Map(
     newEvents.map(event => [
-      `\( {event.category}| \){event.name}|${event.starts_at}`,
+      event.category + "|" + event.name + "|" + event.starts_at,
       event
     ])
   );
@@ -610,33 +514,19 @@ function detectLiveChanges(
   const endedLive = [];
 
   for (const event of newEvents) {
-    const key =
-      `\( {event.category}| \){event.name}|${event.starts_at}`;
+    const key = event.category + "|" + event.name + "|" + event.starts_at;
+    const oldEvent = oldMap.get(key);
 
-    const oldEvent =
-      oldMap.get(key);
-
-    if (
-      event.isLive &&
-      (!oldEvent ||
-        !oldEvent.isLive)
-    ) {
+    if (event.isLive && (!oldEvent || !oldEvent.isLive)) {
       newlyLive.push(event);
     }
   }
 
   for (const oldEvent of oldEvents) {
-    const key =
-      `\( {oldEvent.category}| \){oldEvent.name}|${oldEvent.starts_at}`;
+    const key = oldEvent.category + "|" + oldEvent.name + "|" + oldEvent.starts_at;
+    const current = newMap.get(key);
 
-    const current =
-      newMap.get(key);
-
-    if (
-      oldEvent.isLive &&
-      (!current ||
-        !current.isLive)
-    ) {
+    if (oldEvent.isLive && (!current || !current.isLive)) {
       endedLive.push(oldEvent);
     }
   }
@@ -649,142 +539,74 @@ function detectLiveChanges(
 
 async function checkChannel(channel) {
   if (!channel) {
-    throw new Error(
-      "Discord channel was not found."
-    );
+    throw new Error("Discord channel was not found.");
   }
 
   if (!channel.isTextBased()) {
-    throw new Error(
-      "Configured channel is not a text-based channel."
-    );
+    throw new Error("Configured channel is not a text-based channel.");
   }
 
   if (!client.user) {
-    throw new Error(
-      "Discord client user is not ready."
-    );
+    throw new Error("Discord client user is not ready.");
   }
 
-  const permissions =
-    channel.permissionsFor(
-      client.user
-    );
+  const permissions = channel.permissionsFor(client.user);
 
   if (!permissions) {
-    throw new Error(
-      "Could not read bot permissions in the channel."
-    );
+    throw new Error("Could not read bot permissions in the channel.");
   }
 
   const required = [
-    [
-      PermissionsBitField.Flags.ViewChannel,
-      "View Channel"
-    ],
-    [
-      PermissionsBitField.Flags.SendMessages,
-      "Send Messages"
-    ],
-    [
-      PermissionsBitField.Flags.EmbedLinks,
-      "Embed Links"
-    ],
-    [
-      PermissionsBitField.Flags.ReadMessageHistory,
-      "Read Message History"
-    ],
-    [
-      PermissionsBitField.Flags.ManageMessages,
-      "Manage Messages"
-    ]
+    [PermissionsBitField.Flags.ViewChannel, "View Channel"],
+    [PermissionsBitField.Flags.SendMessages, "Send Messages"],
+    [PermissionsBitField.Flags.EmbedLinks, "Embed Links"],
+    [PermissionsBitField.Flags.ReadMessageHistory, "Read Message History"],
+    [PermissionsBitField.Flags.ManageMessages, "Manage Messages"]
   ];
 
   const missing = required
-    .filter(
-      ([permission]) =>
-        !permissions.has(permission)
-    )
-    .map(
-      ([, name]) => name
-    );
+    .filter(([permission]) => !permissions.has(permission))
+    .map(([, name]) => name);
 
   if (missing.length) {
-    throw new Error(
-      `Missing channel permissions: ${missing.join(", ")}`
-    );
+    throw new Error("Missing channel permissions: " + missing.join(", "));
   }
 }
 
 async function updateSchedule() {
   try {
-    console.log(
-      "[SCHEDULE] Checking schedule..."
-    );
+    console.log("[SCHEDULE] Checking schedule...");
 
-    const channel =
-      await client.channels.fetch(
-        CHANNEL_ID
-      );
+    const channel = await client.channels.fetch(CHANNEL_ID);
 
     await checkChannel(channel);
 
-    console.log(
-      `[SCHEDULE] Channel found: #${channel.name}`
-    );
+    console.log("[SCHEDULE] Channel found: #" + channel.name);
 
-    const rawEvents =
-      await fetchAllEvents();
+    const rawEvents = await fetchAllEvents();
 
-    console.log(
-      `[SCHEDULE] API returned ${rawEvents.length} events`
-    );
+    console.log("[SCHEDULE] API returned " + rawEvents.length + " events");
 
-    const events =
-      processEvents(rawEvents);
+    const events = processEvents(rawEvents);
 
-    const upcomingEvents =
-      getUpcomingEvents(events);
+    const upcomingEvents = getUpcomingEvents(events);
 
-    const liveEvents =
-      events.filter(
-        event => event.isLive
-      );
+    const liveEvents = events.filter(event => event.isLive);
 
-    console.log(
-      `[SCHEDULE] ${upcomingEvents.length} upcoming, ${liveEvents.length} live`
-    );
+    console.log("[SCHEDULE] " + upcomingEvents.length + " upcoming, " + liveEvents.length + " live");
 
-    const {
-      newlyLive,
-      endedLive
-    } = detectLiveChanges(
-      previousEvents,
-      events
-    );
+    const { newlyLive, endedLive } = detectLiveChanges(previousEvents, events);
 
-    await updateScheduleMessages(
-      channel,
-      buildCategoryData(
-        upcomingEvents
-      )
-    );
+    await updateScheduleMessages(channel, buildCategoryData(upcomingEvents));
 
     if (
       newlyLive.length ||
       endedLive.length ||
-      (!previousEvents &&
-        liveEvents.length)
+      (!previousEvents && liveEvents.length)
     ) {
-      await updateLiveMessage(
-        channel,
-        liveEvents
-      );
+      await updateLiveMessage(channel, liveEvents);
     } else if (!liveEvents.length) {
-      const oldLive =
-        await findLiveMessages(
-          channel
-        );
+      const oldLive = await findLiveMessages(channel);
 
       for (const message of oldLive) {
         try {
@@ -796,64 +618,38 @@ async function updateSchedule() {
     previousEvents = events;
 
     console.log(
-      `[SCHEDULE] Updated successfully at ${DateTime.now()
-        .setZone(TIMEZONE)
-        .toFormat("HH:mm:ss")}`
+      "[SCHEDULE] Updated successfully at " +
+      DateTime.now().setZone(TIMEZONE).toFormat("HH:mm:ss")
     );
   } catch (error) {
-    console.error(
-      "[SCHEDULE] UPDATE FAILED:",
-      error.message
-    );
+    console.error("[SCHEDULE] UPDATE FAILED:", error.message);
   }
 }
 
-client.once(
-  "ready",
-  async () => {
-    console.log(
-      `Logged in as ${client.user.tag}`
-    );
+client.once("ready", async () => {
+  console.log("Logged in as " + client.user.tag);
+  console.log("Using channel ID: " + CHANNEL_ID);
 
-    console.log(
-      `Using channel ID: ${CHANNEL_ID}`
-    );
-
-    if (!CHANNEL_ID) {
-      console.error(
-        "DISCORD_CHANNEL_ID is missing."
-      );
-      return;
-    }
-
-    await updateSchedule();
-
-    setInterval(
-      updateSchedule,
-      60 * 1000
-    );
+  if (!CHANNEL_ID) {
+    console.error("DISCORD_CHANNEL_ID is missing.");
+    return;
   }
-);
+
+  await updateSchedule();
+
+  setInterval(updateSchedule, 60 * 1000);
+});
 
 if (!TOKEN) {
-  console.error(
-    "DISCORD_TOKEN is missing."
-  );
-
+  console.error("DISCORD_TOKEN is missing.");
   process.exit(1);
 }
 
 if (!CHANNEL_ID) {
-  console.error(
-    "DISCORD_CHANNEL_ID is missing."
-  );
-
+  console.error("DISCORD_CHANNEL_ID is missing.");
   process.exit(1);
 }
 
 client.login(TOKEN).catch(error => {
-  console.error(
-    "Discord login failed:",
-    error
-  );
+  console.error("Discord login failed:", error);
 });
