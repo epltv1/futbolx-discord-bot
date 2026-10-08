@@ -57,7 +57,6 @@ let previousEvents = null;
 function parseEAT(value) {
   if (!value) return null;
 
-  // Treat API time as Africa/Nairobi
   const dt = DateTime.fromISO(String(value), {
     zone: TIMEZONE
   });
@@ -182,9 +181,7 @@ function buildCategoryData(events) {
     grouped[event.category].push(event);
   }
 
-  const checkedAt = DateTime.now()
-    .setZone(TIMEZONE)
-    .toFormat("HH:mm");
+  const updatedUnix = Math.floor(DateTime.now().toSeconds());
 
   const result = [];
 
@@ -196,7 +193,6 @@ function buildCategoryData(events) {
     categoryEvents.sort((a, b) => a.start.toMillis() - b.start.toMillis());
 
     const lines = categoryEvents.map(event => {
-      // Discord Timestamp: short time + relative
       return "• **" + event.name + "** — <t:" + event.unix + ":t> (<t:" + event.unix + ":R>)";
     });
 
@@ -204,8 +200,9 @@ function buildCategoryData(events) {
       .setTitle(categoryEmoji(category) + " " + category.toUpperCase())
       .setDescription(lines.join("\n"))
       .setFooter({
-        text: "Updated at " + checkedAt + " EAT"
-      });
+        text: "Updated at"
+      })
+      .setTimestamp(updatedUnix * 1000); // Discord converts this to each user's local time
 
     result.push({
       category,
