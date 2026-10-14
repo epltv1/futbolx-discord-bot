@@ -1,3 +1,4 @@
+
 const {
   Client,
   GatewayIntentBits,
@@ -19,6 +20,12 @@ const CHANNEL_ID = process.env.DISCORD_CHANNEL_ID;
 
 const API_BASE = "https://www.futbol-x.xyz/api";
 const TIMEZONE = "Africa/Nairobi";
+
+const STREAM_LINKS_URL =
+  "https://discord.com/channels/1372972743464714370/1455146521975586878";
+
+const REQUEST_EVENT_URL =
+  "https://discord.com/channels/1372972743464714370/1455147734544941162";
 
 const CATEGORIES = [
   "football",
@@ -53,6 +60,8 @@ const CATEGORY_EMOJIS = {
 };
 
 let previousEvents = null;
+let previousLiveSignature = null;
+let updateRunning = false;
 
 function parseEAT(value) {
   if (!value) return null;
@@ -61,11 +70,7 @@ function parseEAT(value) {
     zone: TIMEZONE
   });
 
-  if (!dt.isValid) {
-    return null;
-  }
-
-  return dt;
+  return dt.isValid ? dt : null;
 }
 
 function categoryEmoji(category) {
@@ -74,13 +79,14 @@ function categoryEmoji(category) {
 
 async function fetchCategory(category) {
   try {
-    const url = API_BASE + "/" + category + ".json";
-
-    const response = await fetch(url, {
-      headers: {
-        "User-Agent": "FutbolX-Discord-Bot"
+    const response = await fetch(
+      API_BASE + "/" + category + ".json",
+      {
+        headers: {
+          "User-Agent": "FutbolX-Discord-Bot"
+        }
       }
-    });
+    );
 
     if (!response.ok) {
       throw new Error("HTTP " + response.status);
@@ -90,11 +96,13 @@ async function fetchCategory(category) {
 
     if (data && Array.isArray(data.streams)) {
       const events = [];
+
       for (const group of data.streams) {
         if (Array.isArray(group.streams)) {
           events.push(...group.streams);
         }
       }
+
       return events;
     }
 
@@ -108,7 +116,10 @@ async function fetchCategory(category) {
 
     return [];
   } catch (error) {
-    console.error("[API] " + category + ": " + error.message);
+    console.error(
+      "[API] " + category + ": " + error.message
+    );
+
     return [];
   }
 }
@@ -136,13 +147,11 @@ function processEvents(events) {
       const start = parseEAT(event.starts_at);
       const end = parseEAT(event.ends_at);
 
-      if (!start || !start.isValid) {
-        return null;
-      }
+      if (!start) return null;
 
       const isLive =
         start <= now &&
-        (!end || !end.isValid || now <= end);
+        (!end || now <= end);
 
       return {
         ...event,
@@ -178,10 +187,9 @@ function buildCategoryData(events) {
     if (!grouped[event.category]) {
       grouped[event.category] = [];
     }
+
     grouped[event.category].push(event);
   }
-
-  const updatedUnix = Math.floor(DateTime.now().toSeconds());
 
   const result = [];
 
@@ -190,19 +198,24 @@ function buildCategoryData(events) {
 
     if (!categoryEvents.length) continue;
 
-    categoryEvents.sort((a, b) => a.start.toMillis() - b.start.toMillis());
+    categoryEvents.sort(
+      (a, b) => a.start.toMillis() - b.start.toMillis()
+    );
 
-    const lines = categoryEvents.map(event => {
-      return "• **" + event.name + "** — <t:" + event.unix + ":t> (<t:" + event.unix + ":R>)";
-    });
+    const lines = categoryEvents.map(event =>
+      "• **" + event.name + "** — <t:" +
+      event.unix + ":t> (<t:" + event.unix + ":R>)"
+    );
 
     const embed = new EmbedBuilder()
-      .setTitle(categoryEmoji(category) + " " + category.toUpperCase())
+      .setTitle(
+        categoryEmoji(category) + " " + category.toUpperCase()
+      )
       .setDescription(lines.join("\n"))
       .setFooter({
         text: "Updated at"
       })
-      .setTimestamp(updatedUnix * 1000);
+      .setTimestamp(new Date());
 
     result.push({
       category,
@@ -219,7 +232,10 @@ function getEmbedCategory(message) {
   if (!title) return null;
 
   for (const category of CATEGORIES) {
-    if (title === categoryEmoji(category) + " " + category.toUpperCase()) {
+    if (
+      title ===
+      categoryEmoji(category) + " " + category.toUpperCase()
+    ) {
       return category;
     }
   }
@@ -228,11 +244,15 @@ function getEmbedCategory(message) {
 }
 
 function getOldTextCategory(message) {
-  const content = String(message.content || "");
-  const firstLine = content.split("\n")[0].trim();
+  const firstLine = String(message.content || "")
+    .split("\n")[0]
+    .trim();
 
   for (const category of CATEGORIES) {
-    const normal = categoryEmoji(category) + " **" + category.toUpperCase() + "**";
+    const normal =
+      categoryEmoji(category) + " **" +
+      category.toUpperCase() + "**";
+
     if (firstLine === normal) {
       return category;
     }
@@ -246,7 +266,10 @@ function isScheduleMessage(message) {
     return false;
   }
 
-  return Boolean(getEmbedCategory(message) || getOldTextCategory(message));
+  return Boolean(
+    getEmbedCategory(message) ||
+    getOldTextCategory(message)
+  );
 }
 
 function getScheduleCategory(message) {
@@ -272,6 +295,7 @@ async function findScheduleMessages(channel) {
     }
 
     if (fetched.size < 100) break;
+
     before = fetched.last().id;
   }
 
@@ -284,6 +308,7 @@ async function updateScheduleMessages(channel, categoryData) {
 
   for (const message of existing) {
     const category = getScheduleCategory(message);
+
     if (!category) continue;
 
     if (!byCategory.has(category)) {
@@ -292,6 +317,7 @@ async function updateScheduleMessages(channel, categoryData) {
   }
 
   const activeMessageIds = new Set();
+  let createdNewMessage = false;
 
   for (const item of categoryData) {
     const oldMessage = byCategory.get(item.category);
@@ -302,19 +328,31 @@ async function updateScheduleMessages(channel, categoryData) {
           content: "",
           embeds: [item.embed]
         });
+
         activeMessageIds.add(oldMessage.id);
       } catch (error) {
-        console.error("[SCHEDULE] Failed editing " + item.category + ":", error.message);
+        console.error(
+          "[SCHEDULE] Failed editing " + item.category + ":",
+          error.message
+        );
       }
     } else {
       try {
         const newMessage = await channel.send({
           embeds: [item.embed]
         });
+
         activeMessageIds.add(newMessage.id);
-        console.log("[SCHEDULE] New category message: " + item.category);
+        createdNewMessage = true;
+
+        console.log(
+          "[SCHEDULE] New category message: " + item.category
+        );
       } catch (error) {
-        console.error("[SCHEDULE] Failed creating " + item.category + ":", error.message);
+        console.error(
+          "[SCHEDULE] Failed creating " + item.category + ":",
+          error.message
+        );
       }
     }
   }
@@ -323,19 +361,37 @@ async function updateScheduleMessages(channel, categoryData) {
     if (!activeMessageIds.has(message.id)) {
       try {
         await message.delete();
-        console.log("[SCHEDULE] Removed inactive category message: " + message.id);
+
+        console.log(
+          "[SCHEDULE] Removed inactive category message: " +
+          message.id
+        );
       } catch (error) {
-        console.error("[SCHEDULE] Failed deleting old message:", error.message);
+        console.error(
+          "[SCHEDULE] Failed deleting old message:",
+          error.message
+        );
       }
     }
   }
+
+  return createdNewMessage;
 }
 
 function isLiveMessage(message) {
   if (!client.user || message.author?.id !== client.user.id) {
     return false;
   }
-  return String(message.content || "").includes("🔴 **LIVE NOW**");
+
+  if (
+    String(message.content || "").includes("🔴 **LIVE NOW**")
+  ) {
+    return true;
+  }
+
+  return message.embeds?.some(embed =>
+    embed.title === "🔴 LIVE NOW"
+  ) || false;
 }
 
 async function findLiveMessages(channel) {
@@ -357,6 +413,7 @@ async function findLiveMessages(channel) {
     }
 
     if (fetched.size < 100) break;
+
     before = fetched.last().id;
   }
 
@@ -366,21 +423,34 @@ async function findLiveMessages(channel) {
 function buildLiveMessage(liveEvents) {
   if (!liveEvents.length) return null;
 
-  const lines = liveEvents
-    .sort((a, b) => a.start.toMillis() - b.start.toMillis())
+  const lines = [...liveEvents]
+    .sort(
+      (a, b) => a.start.toMillis() - b.start.toMillis()
+    )
     .map(event => "🔴 **" + event.name + "**");
 
-  return [
-    "🔴 **LIVE NOW**",
-    "",
-    lines.join("\n"),
-    "",
-    "Stream links;",
-    "https://discord.com/channels/1372972743464714370/1455146521975586878",
-    "",
-    "Request event here;",
-    "https://discord.com/channels/1372972743464714370/1455147734544941162"
-  ].join("\n");
+  return new EmbedBuilder()
+    .setColor(0xED2939)
+    .setTitle("🔴 LIVE NOW")
+    .setDescription(lines.join("\n"))
+    .addFields(
+      {
+        name: "📺 Stream links",
+        value:
+          "[Open stream links](" + STREAM_LINKS_URL + ")",
+        inline: true
+      },
+      {
+        name: "➕ Request an event",
+        value:
+          "[Request an event](" + REQUEST_EVENT_URL + ")",
+        inline: true
+      }
+    )
+    .setFooter({
+      text: "Futbol-X • Live events"
+    })
+    .setTimestamp(new Date());
 }
 
 async function updateLiveMessage(channel, liveEvents) {
@@ -390,47 +460,55 @@ async function updateLiveMessage(channel, liveEvents) {
     try {
       await message.delete();
     } catch (error) {
-      console.error("[LIVE] Failed deleting old live message:", error.message);
+      console.error(
+        "[LIVE] Failed deleting old live message:",
+        error.message
+      );
     }
   }
 
   if (!liveEvents.length) return;
 
-  const content = buildLiveMessage(liveEvents);
-  if (!content) return;
+  const embed = buildLiveMessage(liveEvents);
+
+  if (!embed) return;
 
   try {
-    await channel.send({ content });
+    await channel.send({
+      embeds: [embed]
+    });
   } catch (error) {
-    console.error("[LIVE] Failed sending live message:", error.message);
+    console.error(
+      "[LIVE] Failed sending live message:",
+      error.message
+    );
   }
 }
 
 function detectLiveChanges(oldEvents, newEvents) {
   if (!oldEvents) {
-    return { newlyLive: [], endedLive: [] };
+    return {
+      newlyLive: [],
+      endedLive: []
+    };
   }
 
+  const eventKey = event =>
+    event.category + "|" + event.name + "|" + event.starts_at;
+
   const oldMap = new Map(
-    oldEvents.map(event => [
-      event.category + "|" + event.name + "|" + event.starts_at,
-      event
-    ])
+    oldEvents.map(event => [eventKey(event), event])
   );
 
   const newMap = new Map(
-    newEvents.map(event => [
-      event.category + "|" + event.name + "|" + event.starts_at,
-      event
-    ])
+    newEvents.map(event => [eventKey(event), event])
   );
 
   const newlyLive = [];
   const endedLive = [];
 
   for (const event of newEvents) {
-    const key = event.category + "|" + event.name + "|" + event.starts_at;
-    const oldEvent = oldMap.get(key);
+    const oldEvent = oldMap.get(eventKey(event));
 
     if (event.isLive && (!oldEvent || !oldEvent.isLive)) {
       newlyLive.push(event);
@@ -438,24 +516,41 @@ function detectLiveChanges(oldEvents, newEvents) {
   }
 
   for (const oldEvent of oldEvents) {
-    const key = oldEvent.category + "|" + oldEvent.name + "|" + oldEvent.starts_at;
-    const current = newMap.get(key);
+    const current = newMap.get(eventKey(oldEvent));
 
     if (oldEvent.isLive && (!current || !current.isLive)) {
       endedLive.push(oldEvent);
     }
   }
 
-  return { newlyLive, endedLive };
+  return {
+    newlyLive,
+    endedLive
+  };
 }
 
 async function checkChannel(channel) {
-  if (!channel) throw new Error("Discord channel was not found.");
-  if (!channel.isTextBased()) throw new Error("Configured channel is not a text-based channel.");
-  if (!client.user) throw new Error("Discord client user is not ready.");
+  if (!channel) {
+    throw new Error("Discord channel was not found.");
+  }
+
+  if (!channel.isTextBased()) {
+    throw new Error(
+      "Configured channel is not a text-based channel."
+    );
+  }
+
+  if (!client.user) {
+    throw new Error("Discord client user is not ready.");
+  }
 
   const permissions = channel.permissionsFor(client.user);
-  if (!permissions) throw new Error("Could not read bot permissions in the channel.");
+
+  if (!permissions) {
+    throw new Error(
+      "Could not read bot permissions in the channel."
+    );
+  }
 
   const required = [
     [PermissionsBitField.Flags.ViewChannel, "View Channel"],
@@ -470,11 +565,20 @@ async function checkChannel(channel) {
     .map(([, name]) => name);
 
   if (missing.length) {
-    throw new Error("Missing channel permissions: " + missing.join(", "));
+    throw new Error(
+      "Missing channel permissions: " + missing.join(", ")
+    );
   }
 }
 
 async function updateSchedule() {
+  if (updateRunning) {
+    console.log("[SCHEDULE] Previous update still running; skipping.");
+    return;
+  }
+
+  updateRunning = true;
+
   try {
     console.log("[SCHEDULE] Checking schedule...");
 
@@ -484,35 +588,71 @@ async function updateSchedule() {
     console.log("[SCHEDULE] Channel found: #" + channel.name);
 
     const rawEvents = await fetchAllEvents();
-    console.log("[SCHEDULE] API returned " + rawEvents.length + " events");
+
+    console.log(
+      "[SCHEDULE] API returned " + rawEvents.length + " events"
+    );
 
     const events = processEvents(rawEvents);
     const upcomingEvents = getUpcomingEvents(events);
     const liveEvents = events.filter(event => event.isLive);
 
-    console.log("[SCHEDULE] " + upcomingEvents.length + " upcoming, " + liveEvents.length + " live");
+    console.log(
+      "[SCHEDULE] " + upcomingEvents.length +
+      " upcoming, " + liveEvents.length + " live"
+    );
 
-    const { newlyLive, endedLive } = detectLiveChanges(previousEvents, events);
+    const { newlyLive, endedLive } =
+      detectLiveChanges(previousEvents, events);
 
-    await updateScheduleMessages(channel, buildCategoryData(upcomingEvents));
+    const currentLiveSignature = liveEvents
+      .map(event =>
+        event.category + "|" + event.name + "|" + event.starts_at
+      )
+      .sort()
+      .join("\n");
 
-    if (newlyLive.length || endedLive.length || (!previousEvents && liveEvents.length)) {
+    const newCategoryCreated = await updateScheduleMessages(
+      channel,
+      buildCategoryData(upcomingEvents)
+    );
+
+    const liveEventsChanged =
+      currentLiveSignature !== previousLiveSignature;
+
+    if (newCategoryCreated || liveEventsChanged) {
       await updateLiveMessage(channel, liveEvents);
     } else if (!liveEvents.length) {
       const oldLive = await findLiveMessages(channel);
+
       for (const message of oldLive) {
-        try { await message.delete(); } catch {}
+        try {
+          await message.delete();
+        } catch (error) {
+          console.error(
+            "[LIVE] Failed deleting stale message:",
+            error.message
+          );
+        }
       }
     }
 
     previousEvents = events;
+    previousLiveSignature = currentLiveSignature;
 
     console.log(
       "[SCHEDULE] Updated successfully at " +
-      DateTime.now().setZone(TIMEZONE).toFormat("HH:mm:ss")
+      DateTime.now()
+        .setZone(TIMEZONE)
+        .toFormat("HH:mm:ss")
     );
   } catch (error) {
-    console.error("[SCHEDULE] UPDATE FAILED:", error.message);
+    console.error(
+      "[SCHEDULE] UPDATE FAILED:",
+      error.message
+    );
+  } finally {
+    updateRunning = false;
   }
 }
 
@@ -520,12 +660,8 @@ client.once("ready", async () => {
   console.log("Logged in as " + client.user.tag);
   console.log("Using channel ID: " + CHANNEL_ID);
 
-  if (!CHANNEL_ID) {
-    console.error("DISCORD_CHANNEL_ID is missing.");
-    return;
-  }
-
   await updateSchedule();
+
   setInterval(updateSchedule, 60 * 1000);
 });
 
